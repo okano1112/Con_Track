@@ -20,7 +20,8 @@
           "enableFTS": true
         }
       ],
-      "expo-font"
+      "expo-font",
+      "expo-asset"
     ],
     "ios": {
       "supportsTablet": false,
