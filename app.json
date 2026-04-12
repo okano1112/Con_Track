@@ -21,7 +21,8 @@
         }
       ],
       "expo-font",
-      "expo-asset"
+      "expo-asset",
+      "expo-secure-store"
     ],
     "ios": {
       "supportsTablet": false,
