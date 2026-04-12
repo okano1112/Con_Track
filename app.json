@@ -1,9 +1,9 @@
 {
   "expo": {
-    "name": "Con_Track",
+    "name": "ConTrack",
     "slug": "Con_Track",
-    "version": "2.0.0",
-    "orientation": "portrait",
+    "version": "1.0.0",
+    "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "splash": {
