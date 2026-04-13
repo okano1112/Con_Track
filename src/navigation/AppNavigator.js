@@ -49,7 +49,7 @@ export default function AppNavigator() {
   }
 
   return (
-    <GestureHandlerRootView style ={{flex : 1}}> 
+    <GestureHandlerRootView style ={{flex :1}}> 
     <NavigationContainer>
       {user ? <MainStack /> : <AuthStack />}
     </NavigationContainer>

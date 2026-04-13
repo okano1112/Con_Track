@@ -10,3 +10,4 @@ export { default as AddTaskScreen } from './AddTaskScreen';
 export { default as AddDocumentScreen } from './AddDocumentScreen';
 export { default as DocumentsScreen } from './DocumentsScreen';
 export { default as ProfileScreen } from './ProfileScreen';
+export { default as WorkerStatsScreen } from './WorkerStatsScreen'

@@ -61,12 +61,14 @@ export default function LoginScreen({ navigation }) {
           </Text>
 
           <FormInput
-            label="ชื่อผู้ใช้"
-            value={username}
-            onChangeText={setUsername}
-            placeholder="กรอกชื่อผู้ใช้"
-            icon="person-outline"
-          />
+  label="รหัสผ่าน"
+  value={password}
+  onChangeText={setPassword}
+  placeholder="กรอกรหัสผ่าน"
+  secureTextEntry={!showPassword}
+  icon="lock-closed-outline"
+/>
+
 
           <View style={{ marginBottom: 16 }}>
             <Text style={{ fontSize: 14, fontWeight: '600', color: COLORS.text, marginBottom: 6 }}>
