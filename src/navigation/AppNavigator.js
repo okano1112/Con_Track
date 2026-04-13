@@ -1,5 +1,5 @@
 // src/navigation/AppNavigator.js
-
+import {GestureHandlerRootView} from'react-native-gesture-handler'
 import React from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
@@ -7,7 +7,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useAuth } from '../contexts/AuthContext';
 import { COLORS } from '../constants';
 
-import BottomTabNavigator from './BottomTabNavigator';
+import DrawerNavigator from './DrawerNavigator';
 import {
   LoginScreen, RegisterScreen,
   AddProjectScreen, ProjectDetailScreen,
@@ -28,8 +28,8 @@ function AuthStack() {
 function MainStack() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="MainTabs" component={BottomTabNavigator} />
-      <Stack.Screen name="AddProject" component={AddProjectScreen} />
+      <Stack.Screen name="MainTabs" component={DrawerNavigator} options={{ headerShown: false }}/>
+      <Stack.Screen name="AddProject" component={AddProjectScreen}/>
       <Stack.Screen name="ProjectDetail" component={ProjectDetailScreen} />
       <Stack.Screen name="AddTask" component={AddTaskScreen} />
       <Stack.Screen name="AddDocument" component={AddDocumentScreen} />
@@ -49,8 +49,10 @@ export default function AppNavigator() {
   }
 
   return (
+    <GestureHandlerRootView>
     <NavigationContainer>
       {user ? <MainStack /> : <AuthStack />}
     </NavigationContainer>
+    </GestureHandlerRootView>
   );
 }

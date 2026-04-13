@@ -1,10 +1,3 @@
-// src/db/database.js
-// ============================================================
-// OTS Manager — SQLite Database (expo-sqlite)
-// ออกแบบให้เพิ่ม API sync ทีหลังได้ง่าย
-// ทุกตารางมี is_synced + sync_id สำหรับ sync กับ server
-// ============================================================
-
 import * as SQLite from 'expo-sqlite';
 
 const DB_NAME = 'ots_manager.db';
@@ -206,3 +199,39 @@ export async function resetDatabase() {
   _db = null;
   await getDatabase(); // re-init
 }
+
+
+// ในไฟล์ src/db/database.js
+export const initDB = () => {
+  return new Promise((resolve, reject) => {
+    db.transaction((tx) => {
+      // (ตารางเดิมของคุณที่มีอยู่แล้วปล่อยไว้)
+      
+      // 1. สร้างตารางเก็บข้อมูลช่าง
+      tx.executeSql(
+        `CREATE TABLE IF NOT EXISTS workers (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          role TEXT,
+          avatar TEXT
+        );`
+      );
+
+      // 2. สร้างตารางเก็บประวัติการทำงานของช่าง
+      tx.executeSql(
+        `CREATE TABLE IF NOT EXISTS worker_records (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          worker_id INTEGER,
+          workType TEXT,
+          date TEXT,
+          output REAL,
+          quality REAL,
+          FOREIGN KEY (worker_id) REFERENCES workers (id) ON DELETE CASCADE
+        );`,
+        [],
+        () => resolve(), // สำเร็จ
+        (_, error) => reject(error) // ผิดพลาด
+      );
+    });
+  });
+};
