@@ -5,24 +5,18 @@ const DB_VERSION = 1;
 
 let _db = null;
 
-// เปิด database (singleton pattern)
 export async function getDatabase() {
   if (_db) return _db;
   _db = await SQLite.openDatabaseAsync(DB_NAME);
   
-  // เปิด WAL mode เพื่อ performance ที่ดีขึ้น
   await _db.execAsync('PRAGMA journal_mode = WAL;');
   await _db.execAsync('PRAGMA foreign_keys = ON;');
   
-  // ตรวจ version แล้ว migrate
   await migrate(_db);
   
   return _db;
 }
 
-// ============================================================
-// Migration System
-// ============================================================
 async function migrate(db) {
   const result = await db.getFirstAsync('PRAGMA user_version;');
   const currentVersion = result?.user_version ?? 0;
@@ -30,14 +24,11 @@ async function migrate(db) {
   if (currentVersion < 1) {
     await migrateV1(db);
   }
-
-  // เพิ่ม migration ใหม่ได้ที่นี่:
-  // if (currentVersion < 2) { await migrateV2(db); }
 }
 
 async function migrateV1(db) {
   await db.execAsync(`
-    -- ===================== 1. ตารางผู้ใช้ =====================
+    -- [ตารางเดิมของคุณ 1-7 คงไว้เหมือนเดิม]
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT NOT NULL UNIQUE,
@@ -55,7 +46,6 @@ async function migrateV1(db) {
       updated_at TEXT DEFAULT (datetime('now','localtime'))
     );
 
-    -- ===================== 2. ตารางโครงการ =====================
     CREATE TABLE IF NOT EXISTS projects (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
@@ -73,7 +63,6 @@ async function migrateV1(db) {
       updated_at TEXT DEFAULT (datetime('now','localtime'))
     );
 
-    -- ===================== 3. ตารางสมาชิกโครงการ =====================
     CREATE TABLE IF NOT EXISTS project_members (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -84,7 +73,6 @@ async function migrateV1(db) {
       UNIQUE(project_id, user_id)
     );
 
-    -- ===================== 4. ตารางเอกสาร =====================
     CREATE TABLE IF NOT EXISTS documents (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -100,7 +88,6 @@ async function migrateV1(db) {
       created_at TEXT DEFAULT (datetime('now','localtime'))
     );
 
-    -- ===================== 5. ตารางงาน/กิจกรรม =====================
     CREATE TABLE IF NOT EXISTS tasks (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -116,7 +103,6 @@ async function migrateV1(db) {
       created_at TEXT DEFAULT (datetime('now','localtime'))
     );
 
-    -- ===================== 6. ตารางรายงานความคืบหน้า =====================
     CREATE TABLE IF NOT EXISTS progress_reports (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -134,7 +120,6 @@ async function migrateV1(db) {
       created_at TEXT DEFAULT (datetime('now','localtime'))
     );
 
-    -- ===================== 7. ตารางแจ้งเตือน =====================
     CREATE TABLE IF NOT EXISTS notifications (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
@@ -147,7 +132,24 @@ async function migrateV1(db) {
       created_at TEXT DEFAULT (datetime('now','localtime'))
     );
 
-    -- ===================== Indexes =====================
+    -- ===================== 8. ส่วนที่เพิ่มมาใหม่: ตารางช่าง =====================
+    CREATE TABLE IF NOT EXISTS workers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      role TEXT,
+      avatar TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS worker_records (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      worker_id INTEGER,
+      workType TEXT,
+      date TEXT,
+      output REAL,
+      quality REAL,
+      FOREIGN KEY (worker_id) REFERENCES workers (id) ON DELETE CASCADE
+    );
+
     CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status);
     CREATE INDEX IF NOT EXISTS idx_projects_manager ON projects(manager_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id);
@@ -157,16 +159,12 @@ async function migrateV1(db) {
     CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, is_read);
     CREATE INDEX IF NOT EXISTS idx_progress_project ON progress_reports(project_id);
 
-    -- ตั้ง version
     PRAGMA user_version = 1;
   `);
 
-  console.log('✅ Database migrated to v1');
+  console.log('✅ Database migrated to v1 (with Worker tables)');
 }
 
-// ============================================================
-// Helper: สำหรับ sync ทีหลัง
-// ============================================================
 export async function getUnsyncedRecords(tableName) {
   const db = await getDatabase();
   return await db.getAllAsync(`SELECT * FROM ${tableName} WHERE is_synced = 0`);
@@ -181,12 +179,11 @@ export async function markAsSynced(tableName, ids) {
   );
 }
 
-// ============================================================
-// Reset database (สำหรับ dev/testing)
-// ============================================================
 export async function resetDatabase() {
   const db = await getDatabase();
   await db.execAsync(`
+    DROP TABLE IF EXISTS worker_records;
+    DROP TABLE IF EXISTS workers;
     DROP TABLE IF EXISTS notifications;
     DROP TABLE IF EXISTS progress_reports;
     DROP TABLE IF EXISTS documents;
@@ -197,41 +194,5 @@ export async function resetDatabase() {
     PRAGMA user_version = 0;
   `);
   _db = null;
-  await getDatabase(); // re-init
+  await getDatabase(); 
 }
-
-
-// ในไฟล์ src/db/database.js
-export const initDB = () => {
-  return new Promise((resolve, reject) => {
-    db.transaction((tx) => {
-      // (ตารางเดิมของคุณที่มีอยู่แล้วปล่อยไว้)
-      
-      // 1. สร้างตารางเก็บข้อมูลช่าง
-      tx.executeSql(
-        `CREATE TABLE IF NOT EXISTS workers (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          name TEXT NOT NULL,
-          role TEXT,
-          avatar TEXT
-        );`
-      );
-
-      // 2. สร้างตารางเก็บประวัติการทำงานของช่าง
-      tx.executeSql(
-        `CREATE TABLE IF NOT EXISTS worker_records (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          worker_id INTEGER,
-          workType TEXT,
-          date TEXT,
-          output REAL,
-          quality REAL,
-          FOREIGN KEY (worker_id) REFERENCES workers (id) ON DELETE CASCADE
-        );`,
-        [],
-        () => resolve(), // สำเร็จ
-        (_, error) => reject(error) // ผิดพลาด
-      );
-    });
-  });
-};
