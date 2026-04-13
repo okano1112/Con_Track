@@ -6,3 +6,4 @@ export * from './projectRepo';
 export * from './taskRepo';
 export * from './documentRepo';
 export * from './reportRepo';
+export * from './workerRepo';

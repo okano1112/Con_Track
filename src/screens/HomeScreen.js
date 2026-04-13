@@ -3,7 +3,7 @@
 import React, { useState, useCallback } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, RefreshControl } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, DrawerActions } from '@react-navigation/native';
 import { COLORS, SHADOWS, STATUS_MAP } from '../constants';
 import { Card, ProgressBar } from '../components';
 import { useAuth } from '../contexts/AuthContext';
@@ -45,11 +45,24 @@ export default function HomeScreen({ navigation }) {
       {/* Header */}
       <View style={{ backgroundColor: COLORS.primary, paddingTop: 50, paddingBottom: 24, paddingHorizontal: 20 }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-          <View>
-            <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 14 }}>สวัสดีครับ</Text>
-            <Text style={{ color: '#fff', fontSize: 22, fontWeight: '700', marginTop: 2 }}>
-              {user?.full_name || 'ผู้ใช้'}
-            </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            {/* ปุ่มเปิด Drawer */}
+            <TouchableOpacity
+              onPress={() => navigation.dispatch(DrawerActions.openDrawer())}
+              style={{
+                width: 40, height: 40, borderRadius: 12,
+                backgroundColor: 'rgba(255,255,255,0.15)',
+                alignItems: 'center', justifyContent: 'center', marginRight: 12,
+              }}
+            >
+              <Ionicons name="menu" size={22} color="#fff" />
+            </TouchableOpacity>
+            <View>
+              <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 14 }}>สวัสดีครับ</Text>
+              <Text style={{ color: '#fff', fontSize: 22, fontWeight: '700', marginTop: 2 }}>
+                {user?.full_name || 'ผู้ใช้'}
+              </Text>
+            </View>
           </View>
           <View style={{
             width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.15)',

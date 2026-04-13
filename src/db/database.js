@@ -1,7 +1,6 @@
 import * as SQLite from 'expo-sqlite';
 
 const DB_NAME = 'ots_manager.db';
-const DB_VERSION = 1;
 
 let _db = null;
 
@@ -24,11 +23,16 @@ async function migrate(db) {
   if (currentVersion < 1) {
     await migrateV1(db);
   }
+  if (currentVersion < 2) {
+    await migrateV2(db);
+  }
 }
 
+// ============================================================
+// V1 — ตารางหลัก (users, projects, tasks, documents, etc.)
+// ============================================================
 async function migrateV1(db) {
   await db.execAsync(`
-    -- [ตารางเดิมของคุณ 1-7 คงไว้เหมือนเดิม]
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT NOT NULL UNIQUE,
@@ -132,24 +136,6 @@ async function migrateV1(db) {
       created_at TEXT DEFAULT (datetime('now','localtime'))
     );
 
-    -- ===================== 8. ส่วนที่เพิ่มมาใหม่: ตารางช่าง =====================
-    CREATE TABLE IF NOT EXISTS workers (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      role TEXT,
-      avatar TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS worker_records (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      worker_id INTEGER,
-      workType TEXT,
-      date TEXT,
-      output REAL,
-      quality REAL,
-      FOREIGN KEY (worker_id) REFERENCES workers (id) ON DELETE CASCADE
-    );
-
     CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status);
     CREATE INDEX IF NOT EXISTS idx_projects_manager ON projects(manager_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id);
@@ -162,7 +148,39 @@ async function migrateV1(db) {
     PRAGMA user_version = 1;
   `);
 
-  console.log('✅ Database migrated to v1 (with Worker tables)');
+  console.log('✅ Database migrated to v1');
+}
+
+// ============================================================
+// V2 — ตารางช่าง (workers, worker_records)
+// แยกออกมาเป็น migration ใหม่เพื่อให้ DB ที่เคยรัน v1 แล้ว
+// สามารถเพิ่มตารางได้โดยไม่ต้อง reset
+// ============================================================
+async function migrateV2(db) {
+  await db.execAsync(`
+    CREATE TABLE IF NOT EXISTS workers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      role TEXT DEFAULT '',
+      avatar TEXT DEFAULT '👷'
+    );
+
+    CREATE TABLE IF NOT EXISTS worker_records (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      worker_id INTEGER NOT NULL,
+      workType TEXT DEFAULT '',
+      date TEXT DEFAULT '',
+      output REAL DEFAULT 0,
+      quality REAL DEFAULT 0,
+      FOREIGN KEY (worker_id) REFERENCES workers (id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_worker_records_worker ON worker_records(worker_id);
+
+    PRAGMA user_version = 2;
+  `);
+
+  console.log('✅ Database migrated to v2 (workers tables)');
 }
 
 export async function getUnsyncedRecords(tableName) {
