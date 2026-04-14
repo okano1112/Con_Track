@@ -1,7 +1,6 @@
 // src/TeamCalcScreen.js
 // ============================================================
-// หน้าจัดทีม + ทำนายผลผลิต (เวอร์ชันง่ายสุด)
-// 🔧 แก้ Logic ทีหลัง → ค้นหา "TODO-LOGIC"
+// หน้าจัดทีม + ทำนายผลผลิต (อ้างอิงมาตรฐานภาระงานก่อสร้าง พ.ศ. 2562)
 // ============================================================
 
 import React, { useState, useCallback } from 'react';
@@ -10,35 +9,31 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import { C, Card, Button, Header, Empty } from './Components';
+import { C, Card, Header, Empty } from './Components';
 import { getWorkersWithRecords } from './db';
 
 // ============================================================
-// ประเภทงาน — id ต้องตรงกับ work_type ที่บันทึกใน WorkerStatsScreen
-// 🔧 TODO-LOGIC #1: เพิ่ม/แก้ประเภทงานตรงนี้
+// ประเภทงาน — อ้างอิงมาตรฐานภาระงานก่อสร้าง พ.ศ. 2562
 // ============================================================
 const WORK_TYPES = [
-  { id: 'ผูกเหล็ก', unit: 'กก./วัน', icon: 'construct-outline' },
-  { id: 'เทปูน', unit: 'ลบ.ม./วัน', icon: 'cube-outline' },
-  { id: 'ก่ออิฐ', unit: 'ตร.ม./วัน', icon: 'grid-outline' },
-  { id: 'ฉาบปูน', unit: 'ตร.ม./วัน', icon: 'layers-outline' },
-  { id: 'งานไม้', unit: 'ตร.ม./วัน', icon: 'hammer-outline' },
-  { id: 'งานไฟฟ้า', unit: 'จุด/วัน', icon: 'flash-outline' },
-  { id: 'งานประปา', unit: 'จุด/วัน', icon: 'water-outline' },
-  { id: 'งานทาสี', unit: 'ตร.ม./วัน', icon: 'color-palette-outline' },
-  { id: 'งานกระเบื้อง', unit: 'ตร.ม./วัน', icon: 'apps-outline' },
-  { id: 'งานฝ้า', unit: 'ตร.ม./วัน', icon: 'resize-outline' },
-  { id: 'งานเชื่อม', unit: 'จุด/วัน', icon: 'flame-outline' },
-  { id: 'อื่นๆ', unit: 'หน่วย/วัน', icon: 'ellipsis-horizontal-outline' },
+  { id: 'โครงสร้าง คสล.', unit: 'ตร.ม./วัน', icon: 'construct-outline', standard: 27 }, 
+  { id: 'เทปูน', unit: 'ลบ.ม./วัน', icon: 'cube-outline', standard: 3 },
+  { id: 'ก่ออิฐ', unit: 'ตร.ม./วัน', icon: 'grid-outline', standard: 24 },
+  { id: 'ฉาบปูน', unit: 'ตร.ม./วัน', icon: 'layers-outline', standard: 14 },
+  { id: 'งานไม้', unit: 'ตร.ม./วัน', icon: 'hammer-outline', standard: 20 },
+  { id: 'งานไฟฟ้า', unit: 'จุด/วัน', icon: 'flash-outline', standard: 10 },
+  { id: 'งานประปา', unit: 'จุด/วัน', icon: 'water-outline', standard: 10 },
+  { id: 'งานทาสี', unit: 'ตร.ม./วัน', icon: 'color-palette-outline', standard: 85 }, 
+  { id: 'งานกระเบื้อง', unit: 'ตร.ม./วัน', icon: 'apps-outline', standard: 25 }, 
+  { id: 'งานฝ้า', unit: 'ตร.ม./วัน', icon: 'resize-outline', standard: 35 },
+  { id: 'งานเชื่อม', unit: 'จุด/วัน', icon: 'flame-outline', standard: 10 },
+  { id: 'อื่นๆ', unit: 'หน่วย/วัน', icon: 'ellipsis-horizontal-outline', standard: 0 },
 ];
 
 // ============================================================
 // Helpers
 // ============================================================
-
-// 🔧 TODO-LOGIC #2: แก้สูตรคำนวณตรงนี้
 function getAvgOutput(worker, workTypeId) {
-  // records จาก DB มี field ชื่อ work_type (ไม่ใช่ workType)
   const recs = (worker.records || []).filter(r => r.work_type === workTypeId);
   if (recs.length === 0) return 0;
   return recs.reduce((sum, r) => sum + (r.output || 0), 0) / recs.length;
@@ -52,6 +47,12 @@ function getAvgQuality(worker, workTypeId) {
 
 function hasRecordsFor(worker, workTypeId) {
   return (worker.records || []).some(r => r.work_type === workTypeId);
+}
+
+function getEfficiency(output, workTypeId) {
+  const wt = WORK_TYPES.find(w => w.id === workTypeId);
+  if (!wt || !wt.standard || wt.standard === 0) return 0;
+  return (output / wt.standard) * 100;
 }
 
 function qualityColor(q) {
@@ -71,7 +72,6 @@ export default function TeamCalcScreen({ navigation }) {
   const load = async () => {
     try {
       const data = await getWorkersWithRecords();
-      console.log('Loaded workers:', JSON.stringify(data, null, 2)); // debug
       setWorkers(data);
     } catch (e) { console.log('Load error:', e); }
   };
@@ -112,22 +112,17 @@ export default function TeamCalcScreen({ navigation }) {
 // แท็บจัดทีม
 // ============================================================
 function TeamTab({ workers }) {
-  const [workType, setWorkType] = useState('ผูกเหล็ก');
+  const [workType, setWorkType] = useState('โครงสร้าง คสล.');
   const [selectedIds, setSelectedIds] = useState([]);
 
   const wt = WORK_TYPES.find(w => w.id === workType) || WORK_TYPES[0];
-
-  // ช่างที่มีสถิติงานประเภทนี้
   const candidates = workers.filter(w => hasRecordsFor(w, workType));
-
-  // ช่างที่ถูกเลือก
   const team = candidates.filter(w => selectedIds.includes(w.id));
 
-  // 🔧 TODO-LOGIC #3: แก้สูตรรวมทีมตรงนี้
   const teamOutput = team.reduce((sum, w) => sum + getAvgOutput(w, workType), 0);
-  const teamQuality = team.length > 0
-    ? team.reduce((sum, w) => sum + getAvgQuality(w, workType), 0) / team.length
-    : 0;
+  
+  const expectedStandardOutput = team.length * (wt.standard || 0);
+  const teamEfficiency = expectedStandardOutput > 0 ? (teamOutput / expectedStandardOutput) * 100 : 0;
 
   const toggle = (id) => {
     setSelectedIds(prev =>
@@ -137,7 +132,6 @@ function TeamTab({ workers }) {
 
   return (
     <View>
-      {/* เลือกประเภทงาน */}
       <Card>
         <Text style={{ fontSize: 14, fontWeight: '600', color: C.text, marginBottom: 10 }}>
           เลือกประเภทงาน
@@ -163,7 +157,6 @@ function TeamTab({ workers }) {
         </ScrollView>
       </Card>
 
-      {/* รายชื่อช่าง */}
       <Text style={{ fontSize: 15, fontWeight: '700', color: C.text, marginTop: 16, marginBottom: 10 }}>
         เลือกช่างเข้าทีม ({wt.id})
       </Text>
@@ -180,7 +173,6 @@ function TeamTab({ workers }) {
             backgroundColor: isSelected ? '#FEF3C7' : C.white,
           }}>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              {/* Avatar */}
               <View style={{
                 width: 44, height: 44, borderRadius: 22, backgroundColor: '#F3F4F6',
                 alignItems: 'center', justifyContent: 'center', marginRight: 12,
@@ -188,7 +180,6 @@ function TeamTab({ workers }) {
                 <Text style={{ fontSize: 22 }}>👷</Text>
               </View>
 
-              {/* ชื่อ + ตำแหน่ง */}
               <View style={{ flex: 1 }}>
                 <Text style={{ fontSize: 15, fontWeight: '700', color: C.text }}>
                   {worker.name || 'ไม่มีชื่อ'}
@@ -198,7 +189,6 @@ function TeamTab({ workers }) {
                 </Text>
               </View>
 
-              {/* ค่าเฉลี่ย */}
               <View style={{ alignItems: 'flex-end', marginRight: 10 }}>
                 <Text style={{ fontSize: 18, fontWeight: '800', color: C.text }}>
                   {avg.toFixed(1)}
@@ -206,7 +196,6 @@ function TeamTab({ workers }) {
                 <Text style={{ fontSize: 10, color: C.textLight }}>{wt.unit}</Text>
               </View>
 
-              {/* ปุ่มเลือก */}
               <View style={{
                 width: 32, height: 32, borderRadius: 8,
                 backgroundColor: isSelected ? C.accent : '#E5E7EB',
@@ -222,14 +211,12 @@ function TeamTab({ workers }) {
           subtitle="ให้เพิ่มสถิติงานประเภทนี้ให้ช่างก่อนในหน้าสถิติช่าง" />
       )}
 
-      {/* สรุปทีม */}
       {team.length > 0 && (
         <Card style={{ marginTop: 16, backgroundColor: C.primary }}>
           <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700', marginBottom: 14 }}>
             สรุปศักยภาพทีม
           </Text>
 
-          {/* ตัวเลขสรุป */}
           <View style={{ flexDirection: 'row', gap: 10 }}>
             <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 10, padding: 14, alignItems: 'center' }}>
               <Text style={{ color: C.accent, fontSize: 24, fontWeight: '800' }}>{team.length}</Text>
@@ -240,12 +227,13 @@ function TeamTab({ workers }) {
               <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11 }}>{wt.unit}</Text>
             </View>
             <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 10, padding: 14, alignItems: 'center' }}>
-              <Text style={{ color: qualityColor(teamQuality), fontSize: 24, fontWeight: '800' }}>{teamQuality.toFixed(1)}%</Text>
-              <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11 }}>คุณภาพเฉลี่ย</Text>
+              <Text style={{ color: teamEfficiency >= 100 ? '#10B981' : '#F59E0B', fontSize: 24, fontWeight: '800' }}>
+                {wt.standard ? `${teamEfficiency.toFixed(0)}%` : '-'}
+              </Text>
+              <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11 }}>เทียบมาตรฐาน</Text>
             </View>
           </View>
 
-          {/* สัดส่วนแต่ละคน */}
           <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, fontWeight: '600', marginTop: 16, marginBottom: 8 }}>
             สัดส่วนผลผลิตแต่ละคน
           </Text>
@@ -276,7 +264,7 @@ function TeamTab({ workers }) {
 // แท็บทำนายผลผลิต
 // ============================================================
 function PredictTab({ workers }) {
-  const [workType, setWorkType] = useState('ผูกเหล็ก');
+  const [workType, setWorkType] = useState('โครงสร้าง คสล.');
   const [selectedIds, setSelectedIds] = useState([]);
   const [totalWork, setTotalWork] = useState('');
 
@@ -284,13 +272,19 @@ function PredictTab({ workers }) {
   const candidates = workers.filter(w => hasRecordsFor(w, workType));
   const team = candidates.filter(w => selectedIds.includes(w.id));
 
-  // 🔧 TODO-LOGIC #4: แก้สูตรทำนายตรงนี้
-  const teamOutput = team.reduce((sum, w) => sum + getAvgOutput(w, workType), 0);
+  const actualTeamOutput = team.reduce((sum, w) => sum + getAvgOutput(w, workType), 0);
+  const standardExpectedOutput = team.length * (wt.standard || 0);
+  
+  const teamOutput = actualTeamOutput > 0 ? actualTeamOutput : standardExpectedOutput;
+  
   const teamQuality = team.length > 0
     ? team.reduce((sum, w) => sum + getAvgQuality(w, workType), 0) / team.length
     : 0;
+    
   const tw = parseFloat(totalWork) || 0;
-  const daysNeeded = (teamOutput > 0 && tw > 0) ? Math.ceil(tw / teamOutput) : null;
+  
+  const safetyFactor = 1.1; 
+  const daysNeeded = (teamOutput > 0 && tw > 0) ? Math.ceil((tw * safetyFactor) / teamOutput) : null;
 
   const toggle = (id) => {
     setSelectedIds(prev =>
@@ -300,7 +294,6 @@ function PredictTab({ workers }) {
 
   return (
     <View>
-      {/* เลือกประเภทงาน */}
       <Card>
         <Text style={{ fontSize: 14, fontWeight: '600', color: C.text, marginBottom: 10 }}>ประเภทงาน</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -322,7 +315,6 @@ function PredictTab({ workers }) {
         </ScrollView>
       </Card>
 
-      {/* เลือกทีม */}
       <Text style={{ fontSize: 15, fontWeight: '700', color: C.text, marginTop: 16, marginBottom: 10 }}>เลือกทีม</Text>
       {candidates.length > 0 ? candidates.map(worker => {
         const isSelected = selectedIds.includes(worker.id);
@@ -353,7 +345,6 @@ function PredictTab({ workers }) {
         );
       }) : <Empty icon="people-outline" title={`ไม่มีช่างที่มีสถิติ "${wt.id}"`} />}
 
-      {/* ปริมาณงาน */}
       <Card style={{ marginTop: 16 }}>
         <Text style={{ fontSize: 14, fontWeight: '600', color: C.text, marginBottom: 8 }}>
           ปริมาณงานทั้งหมด ({wt.unit.replace('/วัน', '')})
@@ -369,7 +360,6 @@ function PredictTab({ workers }) {
         </View>
       </Card>
 
-      {/* ผลทำนาย */}
       {team.length > 0 && (
         <Card style={{ marginTop: 16, backgroundColor: C.primary }}>
           <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13, fontWeight: '600', marginBottom: 14 }}>
@@ -395,10 +385,10 @@ function PredictTab({ workers }) {
               backgroundColor: 'rgba(245,158,11,0.15)', borderRadius: 10,
               borderWidth: 1, borderColor: 'rgba(245,158,11,0.3)',
             }}>
-              <Text style={{ fontSize: 11, color: C.accent, fontWeight: '600' }}>จำนวนวันที่ต้องใช้</Text>
+              <Text style={{ fontSize: 11, color: C.accent, fontWeight: '600' }}>จำนวนวันที่ต้องใช้ (รวม Safety Factor 10%)</Text>
               <Text style={{ fontSize: 48, fontWeight: '900', color: C.accent, marginTop: 4 }}>{daysNeeded}</Text>
               <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', marginTop: 4, textAlign: 'center' }}>
-                วันทำงาน ({tw.toLocaleString()} ÷ {teamOutput.toFixed(1)} {wt.unit})
+                วันทำงาน ({tw.toLocaleString()} × 1.1 ÷ {teamOutput.toFixed(1)} {wt.unit})
               </Text>
             </View>
           ) : (
