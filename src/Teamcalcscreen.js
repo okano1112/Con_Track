@@ -1,6 +1,6 @@
 // src/Teamcalcscreen.js
 // ============================================================
-// หน้าจัดทีม + ทำนายผลผลิต (เพิ่มระบบกราฟ Plan vs Actual)
+// หน้าจัดทีม + ทำนายผลผลิต (เพิ่มระบบลิงก์โปรเจกต์ & กราฟ 2 ตัว)
 // ============================================================
 
 import React, { useState, useCallback } from 'react';
@@ -9,15 +9,12 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import { LineChart } from 'react-native-chart-kit'; // 🌟 เรียกใช้ไลบรารีกราฟ
+import { LineChart } from 'react-native-chart-kit';
 import { C, Card, Header, Empty } from './Components';
-import { getWorkersWithRecords } from './db';
+import { getWorkersWithRecords, getAllProjects } from './db'; // 🌟 ดึงข้อมูลโปรเจกต์มาด้วย
 
-const screenWidth = Dimensions.get("window").width; // สำหรับคำนวณความกว้างกราฟ
+const screenWidth = Dimensions.get("window").width;
 
-// ============================================================
-// ประเภทงาน — (รักษา id เดิมไว้ทั้งหมด)
-// ============================================================
 const WORK_TYPES = [
   { id: 'ผูกเหล็ก', unit: 'กก./วัน', icon: 'construct-outline', standard: 50 },
   { id: 'เทปูน', unit: 'ลบ.ม./วัน', icon: 'cube-outline', standard: 3 },
@@ -35,9 +32,6 @@ const WORK_TYPES = [
   { id: 'อื่นๆ', unit: 'หน่วย/วัน', icon: 'ellipsis-horizontal-outline', standard: 1 },
 ];
 
-// ============================================================
-// Helpers
-// ============================================================
 function getEffectiveOutput(worker, workTypeId) {
   const recs = (worker.records || []).filter(r => r.work_type === workTypeId);
   if (recs.length > 0) {
@@ -63,11 +57,9 @@ function qualityColor(q) {
   return '#EF4444';
 }
 
-// ============================================================
-// MAIN SCREEN
-// ============================================================
 export default function TeamCalcScreen({ navigation }) {
   const [workers, setWorkers] = useState([]);
+  const [projects, setProjects] = useState([]); // 🌟 State เก็บโปรเจกต์
   const [refreshing, setRefreshing] = useState(false);
   const [tab, setTab] = useState('team');
 
@@ -75,6 +67,8 @@ export default function TeamCalcScreen({ navigation }) {
     try {
       const data = await getWorkersWithRecords();
       setWorkers(data);
+      const projs = await getAllProjects(); // 🌟 โหลดโปรเจกต์จากหน้าแรก
+      setProjects(projs);
     } catch (e) { console.log('Load error:', e); }
   };
   useFocusEffect(useCallback(() => { load(); }, []));
@@ -102,7 +96,7 @@ export default function TeamCalcScreen({ navigation }) {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}>
         {tab === 'team'
           ? <TeamTab workers={workers} />
-          : <PredictTab workers={workers} />
+          : <PredictTab workers={workers} projects={projects} /> /* 🌟 ส่ง projects ไปให้แท็บทำนาย */
         }
       </ScrollView>
     </View>
@@ -110,7 +104,7 @@ export default function TeamCalcScreen({ navigation }) {
 }
 
 // ============================================================
-// แท็บ 1: จัดทีม
+// แท็บ 1: จัดทีม (เหมือนเดิมเป๊ะ)
 // ============================================================
 function TeamTab({ workers }) {
   const [workType, setWorkType] = useState('ผูกเหล็ก');
@@ -128,9 +122,7 @@ function TeamTab({ workers }) {
     : 0;
 
   const toggle = (id) => {
-    setSelectedIds(prev =>
-      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
-    );
+    setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   };
 
   return (
@@ -226,19 +218,18 @@ function TeamTab({ workers }) {
 }
 
 // ============================================================
-// แท็บ 2: ทำนายผลผลิต (🌟 ส่วนนี้คือกราฟ Plan vs Actual)
+// แท็บ 2: ทำนายผลผลิต (🌟 กราฟ 2 ตัว: ทีมรายวัน & โครงการ)
 // ============================================================
-function PredictTab({ workers }) {
+function PredictTab({ workers, projects }) {
   const [workType, setWorkType] = useState('ผูกเหล็ก');
   const [selectedIds, setSelectedIds] = useState([]);
   
   const [totalWork, setTotalWork] = useState('');
-  const [targetDays, setTargetDays] = useState(''); // 🌟 ช่องรับเป้าหมาย
+  const [targetDays, setTargetDays] = useState('');
+  const [selectedProjectId, setSelectedProjectId] = useState(null); // 🌟 เลือกโปรเจกต์
 
   const wt = WORK_TYPES.find(w => w.id === workType) || WORK_TYPES[0];
-  const candidates = workers; 
-  const team = candidates.filter(w => selectedIds.includes(w.id));
-
+  const team = workers.filter(w => selectedIds.includes(w.id));
   const teamOutput = team.reduce((sum, w) => sum + getEffectiveOutput(w, workType), 0);
   
   const membersWithQuality = team.filter(w => hasRecordsFor(w, workType));
@@ -248,20 +239,16 @@ function PredictTab({ workers }) {
 
   const tw = parseFloat(totalWork) || 0;
   const tDays = parseInt(targetDays) || 0;
-  
-  // 🌟 คำนวณวันจบงานจริงของทีม
-  const daysNeeded = (teamOutput > 0 && tw > 0) ? Math.ceil(tw / teamOutput) : 0;
+  const daysNeeded = (teamOutput > 0 && tw > 0) ? Math.ceil((tw * 1.1) / teamOutput) : 0; // เผื่อ 10%
 
-  const toggle = (id) => {
-    setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
-  };
+  const toggle = (id) => setSelectedIds(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
 
-  // 🌟 คำนวณข้อมูลเพื่อวาดกราฟ
-  let chartData = null;
+  // ==========================================
+  // 🌟 กราฟที่ 1: กราฟรายวัน (เป้าหมาย vs ช่าง)
+  // ==========================================
+  let chartData1 = null;
   if (tw > 0 && tDays > 0 && teamOutput > 0) {
     const maxDays = Math.max(tDays, daysNeeded);
-    
-    // สร้างแกน X จำนวน 5 จุดเพื่อให้กราฟดูสวยงาม
     const steps = 4;
     const labels = [];
     const planLine = [];
@@ -271,22 +258,68 @@ function PredictTab({ workers }) {
       const currentDay = Math.round((maxDays / steps) * i);
       labels.push(`D${currentDay}`);
       
-      // เส้นที่ 1: Plan (เฉลี่ยงานต่อวันตามแผน)
       let pVal = (tw / tDays) * currentDay;
-      planLine.push(pVal > tw ? tw : pVal); // งานเสร็จ 100% แล้วให้กราฟคงที่
+      planLine.push(pVal > tw ? tw : pVal); 
       
-      // เส้นที่ 2: Actual (ความสามารถทีมจริง)
       let aVal = teamOutput * currentDay;
       actualLine.push(aVal > tw ? tw : aVal);
     }
 
-    chartData = {
+    chartData1 = {
       labels: labels,
       datasets: [
-        { data: planLine, color: (opacity = 1) => `rgba(59, 130, 246, ${opacity})`, strokeWidth: 2 }, // Plan: สีฟ้า
-        { data: actualLine, color: (opacity = 1) => `rgba(16, 185, 129, ${opacity})`, strokeWidth: 3 } // Actual: สีเขียว
+        { data: planLine, color: () => `rgba(59, 130, 246, 1)`, strokeWidth: 2 },
+        { data: actualLine, color: () => `rgba(16, 185, 129, 1)`, strokeWidth: 3 }
       ],
-      legend: ["ตามแผน (Plan)", "ทีมปัจจุบัน (Actual)"]
+      legend: ["แผนงาน (Plan)", "ทีมปัจจุบัน (Actual)"]
+    };
+  }
+
+  // ==========================================
+  // 🌟 กราฟที่ 2: S-Curve ลิงก์กับระบบโครงการ
+  // ==========================================
+  const selProject = projects.find(p => p.id === selectedProjectId);
+  let chartDataProject = null;
+  
+  if (selProject && tw > 0 && teamOutput > 0) {
+    // 1. คำนวณวันทั้งหมดของโปรเจกต์ (ถ้าไม่มีใส่วัน ให้ใช้เป้าหมายที่กรอกด้านบน)
+    let pDuration = tDays || 30; 
+    if (selProject.start_date && selProject.end_date) {
+       const s = new Date(selProject.start_date);
+       const e = new Date(selProject.end_date);
+       if (!isNaN(s) && !isNaN(e)) pDuration = Math.max(1, Math.ceil((e - s) / 86400000));
+    }
+
+    const currentProg = selProject.progress || 0; // % ปัจจุบันของโปรเจกต์
+    const teamSpeedPct = (teamOutput / (tw * 1.1)) * 100; // ความเร็วทีมคิดเป็น % ต่อวัน
+    const daysToFinishRemaining = Math.ceil((100 - currentProg) / teamSpeedPct);
+    
+    const maxGraphDays = Math.max(pDuration, daysToFinishRemaining);
+    const pSteps = 4;
+    const pLabels = [];
+    const pPlanLine = [];
+    const pForecastLine = [];
+
+    for (let i = 0; i <= pSteps; i++) {
+      const dayMark = Math.round((maxGraphDays / pSteps) * i);
+      pLabels.push(`D${dayMark}`);
+
+      // เส้น Plan (วิ่งไปที่ 100%)
+      let pVal = (100 / pDuration) * dayMark;
+      pPlanLine.push(pVal > 100 ? 100 : pVal);
+
+      // เส้น Forecast (เริ่มจาก Progress ปัจจุบัน ไต่ขึ้นตามความเร็วช่าง)
+      let fVal = currentProg + (teamSpeedPct * dayMark);
+      pForecastLine.push(fVal > 100 ? 100 : fVal);
+    }
+
+    chartDataProject = {
+      labels: pLabels,
+      datasets: [
+        { data: pPlanLine, color: () => `rgba(99, 102, 241, 1)`, strokeWidth: 2 }, // Plan: สีม่วง
+        { data: pForecastLine, color: () => `rgba(245, 158, 11, 1)`, strokeWidth: 3 } // Forecast: สีส้ม
+      ],
+      legend: ["แผนแม่บท (100%)", "คาดการณ์ (ทีมนี้)"]
     };
   }
 
@@ -299,10 +332,8 @@ function PredictTab({ workers }) {
             {WORK_TYPES.map(w => (
               <TouchableOpacity key={w.id} onPress={() => { setWorkType(w.id); setSelectedIds([]); }}
                 style={{
-                  flexDirection: 'row', alignItems: 'center', gap: 6,
-                  paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20,
-                  backgroundColor: workType === w.id ? C.accent : '#F3F4F6',
-                  borderWidth: workType === w.id ? 0 : 1, borderColor: C.border,
+                  flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20,
+                  backgroundColor: workType === w.id ? C.accent : '#F3F4F6', borderWidth: workType === w.id ? 0 : 1, borderColor: C.border,
                 }}>
                 <Ionicons name={w.icon} size={14} color={workType === w.id ? '#fff' : C.textSec} />
                 <Text style={{ color: workType === w.id ? '#fff' : C.textSec, fontWeight: '600', fontSize: 12 }}>{w.id}</Text>
@@ -312,8 +343,8 @@ function PredictTab({ workers }) {
         </ScrollView>
       </Card>
 
-      <Text style={{ fontSize: 15, fontWeight: '700', color: C.text, marginTop: 16, marginBottom: 10 }}>เลือกทีมปฏิบัติงาน</Text>
-      {candidates.length > 0 ? candidates.map(worker => {
+      <Text style={{ fontSize: 15, fontWeight: '700', color: C.text, marginTop: 16, marginBottom: 10 }}>เลือกทีม</Text>
+      {workers.length > 0 ? workers.map(worker => {
         const isSelected = selectedIds.includes(worker.id);
         const outputVal = getEffectiveOutput(worker, workType);
         return (
@@ -321,16 +352,12 @@ function PredictTab({ workers }) {
             borderWidth: 2, borderColor: isSelected ? C.accent : 'transparent', backgroundColor: isSelected ? '#FEF3C7' : C.white,
           }}>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center', marginRight: 10 }}>
-                <Text style={{ fontSize: 18 }}>👷</Text>
-              </View>
+              <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center', marginRight: 10 }}><Text style={{ fontSize: 18 }}>👷</Text></View>
               <View style={{ flex: 1 }}>
                 <Text style={{ fontSize: 14, fontWeight: '700', color: C.text }}>{worker.name}</Text>
                 <Text style={{ fontSize: 11, color: C.textSec }}>กำลังผลิต: {outputVal.toFixed(1)} {wt.unit}</Text>
               </View>
-              <View style={{
-                width: 28, height: 28, borderRadius: 7, backgroundColor: isSelected ? C.accent : '#E5E7EB', alignItems: 'center', justifyContent: 'center',
-              }}>
+              <View style={{ width: 28, height: 28, borderRadius: 7, backgroundColor: isSelected ? C.accent : '#E5E7EB', alignItems: 'center', justifyContent: 'center' }}>
                 <Ionicons name={isSelected ? 'checkmark' : 'add'} size={16} color="#fff" />
               </View>
             </View>
@@ -338,11 +365,9 @@ function PredictTab({ workers }) {
         );
       }) : <Empty icon="people-outline" title="ไม่มีพนักงานในระบบ" />}
 
-      {/* 🌟 ช่องกรอกเป้าหมาย (Plan) */}
+      {/* กรอกเป้าหมาย */}
       <Card style={{ marginTop: 16 }}>
-        <Text style={{ fontSize: 14, fontWeight: '600', color: C.text, marginBottom: 8 }}>
-          เป้าหมายแผนงาน (Plan)
-        </Text>
+        <Text style={{ fontSize: 14, fontWeight: '600', color: C.text, marginBottom: 8 }}>เป้าหมายแผนงาน (Plan)</Text>
         <View style={{ flexDirection: 'row', gap: 10 }}>
           <View style={{ flex: 1.5 }}>
             <Text style={{ fontSize: 12, color: C.textSec, marginBottom: 4 }}>ปริมาณงานทั้งหมด ({wt.unit.replace('/วัน', '')})</Text>
@@ -361,64 +386,89 @@ function PredictTab({ workers }) {
         </View>
       </Card>
 
-      {/* 🌟 ผลทำนาย และ กราฟ */}
+      {/* 🌟 แสดงกราฟและผลสรุป */}
       {team.length > 0 && (
-        <Card style={{ marginTop: 16, backgroundColor: C.primary }}>
-          <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13, fontWeight: '600', marginBottom: 14 }}>
-            ผลการประเมินทีม
-          </Text>
-
-          <View style={{ flexDirection: 'row', gap: 10 }}>
-            <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 10, padding: 14 }}>
-              <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>กำลังผลิตทีม/วัน</Text>
-              <Text style={{ fontSize: 24, fontWeight: '800', color: C.accent, marginTop: 4 }}>{teamOutput.toFixed(1)}</Text>
-              <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>{wt.unit}</Text>
-            </View>
-            <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 10, padding: 14 }}>
-              <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>คุณภาพเฉลี่ย</Text>
-              <Text style={{ fontSize: 24, fontWeight: '800', color: qualityColor(teamQuality), marginTop: 4 }}>{teamQuality > 0 ? `${teamQuality.toFixed(1)}%` : '-'}</Text>
-              <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>ของทีม</Text>
-            </View>
-          </View>
-
-          {/* แสดงกราฟ S-Curve ถ้าผู้ใช้กรอกข้อมูลครบ */}
-          {chartData ? (
-            <View style={{ marginTop: 16, backgroundColor: '#fff', borderRadius: 10, padding: 12 }}>
-              <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, marginBottom: 10, textAlign: 'center' }}>กราฟเปรียบเทียบแผนงาน (Plan vs Actual)</Text>
-              <LineChart
-                data={chartData}
-                width={screenWidth - 80} // ปรับให้พอดีกรอบ
-                height={200}
-                chartConfig={{
-                  backgroundColor: '#fff',
-                  backgroundGradientFrom: '#fff',
-                  backgroundGradientTo: '#fff',
-                  decimalPlaces: 0,
-                  color: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
-                  labelColor: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
-                  propsForDots: { r: "4" }
-                }}
-                bezier
-                style={{ borderRadius: 10 }}
-              />
-              <View style={{ marginTop: 12, padding: 12, borderRadius: 8, backgroundColor: daysNeeded <= tDays ? '#D1FAE5' : '#FEE2E2' }}>
-                <Text style={{ fontSize: 13, fontWeight: '700', color: daysNeeded <= tDays ? '#059669' : '#DC2626', textAlign: 'center' }}>
-                  {daysNeeded <= tDays ? '✅ ทีมนี้ทำงานเสร็จทันตามแผน!' : '⚠️ ทีมนี้อาจทำงานล่าช้ากว่าแผน (Behind Schedule)'}
-                </Text>
-                <Text style={{ fontSize: 12, color: C.textSec, marginTop: 4, textAlign: 'center' }}>
-                  แผนกำหนดไว้ {tDays} วัน — ทีมจะใช้เวลาจริงประมาณ {daysNeeded} วัน
-                </Text>
+        <View>
+          <Card style={{ marginTop: 16, backgroundColor: C.primary }}>
+            <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13, fontWeight: '600', marginBottom: 14 }}>สรุปผลประเมินทีม</Text>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 10, padding: 14 }}>
+                <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>กำลังผลิตทีม/วัน</Text>
+                <Text style={{ fontSize: 24, fontWeight: '800', color: C.accent, marginTop: 4 }}>{teamOutput.toFixed(1)}</Text>
+                <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>{wt.unit}</Text>
+              </View>
+              <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 10, padding: 14 }}>
+                <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>คุณภาพเฉลี่ย</Text>
+                <Text style={{ fontSize: 24, fontWeight: '800', color: qualityColor(teamQuality), marginTop: 4 }}>{teamQuality > 0 ? `${teamQuality.toFixed(1)}%` : '-'}</Text>
+                <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>ของทีม</Text>
               </View>
             </View>
-          ) : (
-            <View style={{ marginTop: 14, alignItems: 'center', paddingVertical: 16 }}>
-              <Ionicons name="analytics-outline" size={24} color="rgba(255,255,255,0.3)" />
-              <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13, marginTop: 6, textAlign: 'center' }}>
-                กรอกปริมาณงานและเวลาที่กำหนดด้านบน{"\n"}เพื่อตีกราฟวิเคราะห์แผนงาน
-              </Text>
-            </View>
+
+            {/* กราฟ 1: กราฟรายวัน */}
+            {chartData1 && (
+              <View style={{ marginTop: 16, backgroundColor: '#fff', borderRadius: 10, padding: 12 }}>
+                <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, marginBottom: 10, textAlign: 'center' }}>📊 กราฟเนื้องานสะสม (ปริมาณ vs เวลา)</Text>
+                <LineChart
+                  data={chartData1} width={screenWidth - 80} height={200} bezier
+                  chartConfig={{ backgroundColor: '#fff', backgroundGradientFrom: '#fff', backgroundGradientTo: '#fff', decimalPlaces: 0, color: (o = 1) => `rgba(0, 0, 0, ${o})`, labelColor: (o = 1) => `rgba(0, 0, 0, ${o})`, propsForDots: { r: "3" } }}
+                  style={{ borderRadius: 10 }}
+                />
+                <View style={{ marginTop: 12, padding: 12, borderRadius: 8, backgroundColor: daysNeeded <= tDays ? '#D1FAE5' : '#FEE2E2' }}>
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: daysNeeded <= tDays ? '#059669' : '#DC2626', textAlign: 'center' }}>
+                    {daysNeeded <= tDays ? '✅ ทีมนี้ทำงานเสร็จทันตามแผน!' : '⚠️ ทีมนี้อาจทำงานล่าช้ากว่าแผน (Behind Schedule)'}
+                  </Text>
+                  <Text style={{ fontSize: 12, color: C.textSec, marginTop: 4, textAlign: 'center' }}>ทีมใช้เวลาจริงประมาณ {daysNeeded} วัน (เผื่อ 10% แล้ว)</Text>
+                </View>
+              </View>
+            )}
+          </Card>
+
+          {/* 🌟 ลิงก์กับโครงการ (กราฟ 2) */}
+          {chartData1 && (
+            <Card style={{ marginTop: 16 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+                <Ionicons name="link-outline" size={20} color={C.primary} style={{ marginRight: 6 }} />
+                <Text style={{ fontSize: 15, fontWeight: '700', color: C.primary }}>เชื่อมโยงกับโปรเจกต์ในระบบ</Text>
+              </View>
+              
+              {projects.length === 0 ? (
+                <Text style={{ color: C.textSec, fontSize: 13 }}>ยังไม่มีโครงการ (เพิ่มได้ที่หน้าหลัก)</Text>
+              ) : (
+                <View>
+                  <Text style={{ fontSize: 12, color: C.textSec, marginBottom: 8 }}>เลือกโปรเจกต์ที่ต้องการวิเคราะห์ (S-Curve)</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
+                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                      {projects.map(p => (
+                        <TouchableOpacity key={p.id} onPress={() => setSelectedProjectId(p.id)}
+                          style={{
+                            paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10,
+                            backgroundColor: selectedProjectId === p.id ? '#EDE9FE' : '#F3F4F6',
+                            borderWidth: 1, borderColor: selectedProjectId === p.id ? '#8B5CF6' : C.border,
+                          }}>
+                          <Text style={{ color: selectedProjectId === p.id ? '#6D28D9' : C.text, fontWeight: '700', fontSize: 13 }}>{p.name}</Text>
+                          <Text style={{ color: C.textSec, fontSize: 11, marginTop: 2 }}>ความคืบหน้า: {p.progress || 0}%</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </ScrollView>
+                </View>
+              )}
+
+              {/* กราฟ 2: Project S-Curve */}
+              {chartDataProject && (
+                <View style={{ backgroundColor: '#F9FAFB', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: C.border }}>
+                  <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, marginBottom: 10, textAlign: 'center' }}>📈 S-Curve วิเคราะห์ความคืบหน้าโปรเจกต์ (%)</Text>
+                  <LineChart
+                    data={chartDataProject} width={screenWidth - 80} height={200} bezier
+                    chartConfig={{ backgroundColor: '#F9FAFB', backgroundGradientFrom: '#F9FAFB', backgroundGradientTo: '#F9FAFB', decimalPlaces: 0, color: (o = 1) => `rgba(0, 0, 0, ${o})`, labelColor: (o = 1) => `rgba(0, 0, 0, ${o})`, propsForDots: { r: "3" } }}
+                    style={{ borderRadius: 10 }}
+                  />
+                  <Text style={{ fontSize: 11, color: C.textSec, textAlign: 'center', marginTop: 10 }}>* ประเมินจาก % ความคืบหน้าโปรเจกต์ เทียบกับกำลังผลิตของทีมที่เลือก</Text>
+                </View>
+              )}
+            </Card>
           )}
-        </Card>
+        </View>
       )}
     </View>
   );
