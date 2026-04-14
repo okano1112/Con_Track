@@ -1,6 +1,6 @@
 // src/db.js
 // ============================================================
-// ฐานข้อมูลทั้งหมดรวมไว้ไฟล์เดียว
+// ฐานข้อมูลทั้งหมดรวมไว้ไฟล์เดียว (เพิ่มระบบ Auto-Migration แก้บัคคอลัมน์หาย)
 // ============================================================
 
 import * as SQLite from 'expo-sqlite';
@@ -17,6 +17,7 @@ export async function getDB() {
 }
 
 async function initDB(db) {
+  // 1. สร้างตารางทั้งหมด (กรณีติดตั้งแอปครั้งแรก)
   await db.execAsync(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -82,12 +83,11 @@ async function initDB(db) {
       FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
     );
 
-    -- 🔧 อัปเกรดตาราง workers เพิ่มคอลัมน์ สัญชาติ, เพศ, ค่าแรง, อายุงาน, สถานะ
     CREATE TABLE IF NOT EXISTS workers (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
       role TEXT DEFAULT '',
-      nationality TEXT NOT NULL,
+      nationality TEXT DEFAULT 'ไทย',
       gender TEXT DEFAULT 'ชาย',
       age INTEGER DEFAULT 0,
       daily_wage REAL DEFAULT 0,
@@ -105,13 +105,42 @@ async function initDB(db) {
       date TEXT DEFAULT '',
       output REAL DEFAULT 0,
       quality REAL DEFAULT 0,
+      ot_hours REAL DEFAULT 0,
+      ot_amount REAL DEFAULT 0,
       FOREIGN KEY (worker_id) REFERENCES workers(id) ON DELETE CASCADE
     );
   `);
+
+  // ============================================================
+  // 🌟 ระบบ Auto-Migration 🌟 
+  // ทำการเพิ่มคอลัมน์ใหม่ลงในตารางเก่า หากคอลัมน์นั้นยังไม่มี
+  // (แก้ปัญหาบันทึกพนักงานไม่เข้าเพราะหาคอลัมน์ไม่เจอ)
+  // ============================================================
+  const workerColumns = [
+    "ALTER TABLE workers ADD COLUMN nationality TEXT DEFAULT 'ไทย';",
+    "ALTER TABLE workers ADD COLUMN gender TEXT DEFAULT 'ชาย';",
+    "ALTER TABLE workers ADD COLUMN age INTEGER DEFAULT 0;",
+    "ALTER TABLE workers ADD COLUMN daily_wage REAL DEFAULT 0;",
+    "ALTER TABLE workers ADD COLUMN experience_years INTEGER DEFAULT 0;",
+    "ALTER TABLE workers ADD COLUMN employment_status TEXT DEFAULT 'พนักงานรายวัน';"
+  ];
+
+  for (let sql of workerColumns) {
+    try { await db.execAsync(sql); } catch (e) { /* ละเว้น error หากคอลัมน์มีอยู่แล้ว */ }
+  }
+
+  const recordColumns = [
+    "ALTER TABLE worker_records ADD COLUMN ot_hours REAL DEFAULT 0;",
+    "ALTER TABLE worker_records ADD COLUMN ot_amount REAL DEFAULT 0;"
+  ];
+
+  for (let sql of recordColumns) {
+    try { await db.execAsync(sql); } catch (e) { /* ละเว้น error หากคอลัมน์มีอยู่แล้ว */ }
+  }
 }
 
 // ============================================================
-// AUTH, PROJECTS, TASKS, DOCUMENTS (เหมือนเดิม)
+// AUTH, PROJECTS, TASKS, DOCUMENTS
 // ============================================================
 export async function register(username, password, fullName, position, department, phone) {
   const db = await getDB();
@@ -220,13 +249,24 @@ export async function deleteDocument(id) {
 }
 
 // ============================================================
-// WORKERS — 🔧 อัปเกรดรับข้อมูลครบถ้วน
+// WORKERS 
 // ============================================================
+
+// 🌟 อัปเกรด: กระจายพารามิเตอร์ป้องกัน Error การ Bind ตัวแปรของ SQLite
 export async function insertWorker({ name, role, nationality, gender, age, dailyWage, experienceYears, employmentStatus, phone, avatarUri }) {
   const db = await getDB();
   const r = await db.runAsync(
     'INSERT INTO workers (name,role,nationality,gender,age,daily_wage,experience_years,employment_status,phone,avatar_uri) VALUES (?,?,?,?,?,?,?,?,?,?)',
-    [name, role || '', nationality, gender || 'ชาย', age || 0, dailyWage || 0, experienceYears || 0, employmentStatus || 'พนักงานรายวัน', phone || '', avatarUri || '']
+    name, 
+    role || '', 
+    nationality || 'ไทย', 
+    gender || 'ชาย', 
+    age || 0, 
+    dailyWage || 0, 
+    experienceYears || 0, 
+    employmentStatus || 'พนักงานรายวัน', 
+    phone || '', 
+    avatarUri || ''
   );
   return r.lastInsertRowId;
 }
@@ -234,7 +274,7 @@ export async function insertWorker({ name, role, nationality, gender, age, daily
 export async function getWorkersWithRecords() {
   const db = await getDB();
   const rows = await db.getAllAsync(`
-    SELECT w.*, r.id as rid, r.work_type, r.date, r.output, r.quality
+    SELECT w.*, r.id as rid, r.work_type, r.date, r.output, r.quality, r.ot_hours, r.ot_amount
     FROM workers w LEFT JOIN worker_records r ON w.id=r.worker_id
     ORDER BY w.name ASC
   `);
@@ -257,7 +297,7 @@ export async function getWorkersWithRecords() {
     if (row.rid) {
       map[row.id].records.push({
         id: row.rid, work_type: row.work_type, date: row.date,
-        output: row.output, quality: row.quality,
+        output: row.output, quality: row.quality, ot_hours: row.ot_hours, ot_amount: row.ot_amount
       });
     }
   });
@@ -265,7 +305,7 @@ export async function getWorkersWithRecords() {
   const finalResult = Object.values(map).map(worker => {
     if (worker.records.length > 0) {
       worker.records_text = worker.records
-        .map(r => `• วันที่ ${r.date} | งาน: ${r.work_type} (ผลผลิต: ${r.output}, คุณภาพ: ${r.quality})`)
+        .map(r => `• วันที่ ${r.date} | งาน: ${r.work_type} (ผลผลิต: ${r.output}, OT: ${r.ot_hours||0} ชม.)`)
         .join('\n');
     } else {
       worker.records_text = 'ยังไม่มีประวัติการทำงาน';
@@ -276,11 +316,17 @@ export async function getWorkersWithRecords() {
   return finalResult;
 }
 
-export async function insertWorkerRecord(workerId, workType, date, output, quality) {
+export async function insertWorkerRecord(workerId, workType, date, output, quality, otHours, otAmount) {
   const db = await getDB();
   return await db.runAsync(
-    'INSERT INTO worker_records (worker_id,work_type,date,output,quality) VALUES (?,?,?,?,?)',
-    [workerId, workType, date, output, quality]
+    'INSERT INTO worker_records (worker_id,work_type,date,output,quality,ot_hours,ot_amount) VALUES (?,?,?,?,?,?,?)',
+    workerId, 
+    workType, 
+    date, 
+    output, 
+    quality, 
+    otHours || 0, 
+    otAmount || 0
   );
 }
 
@@ -289,9 +335,6 @@ export async function deleteWorker(id) {
   await db.runAsync('DELETE FROM workers WHERE id=?', [id]);
 }
 
-// ============================================================
-// RESET
-// ============================================================
 export async function resetDB() {
   const db = await getDB();
   await db.execAsync(`
