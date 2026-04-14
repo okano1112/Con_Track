@@ -1,15 +1,12 @@
 // src/TeamCalcScreen.js
 // ============================================================
-// หน้าจัดทีม + ทำนายผลผลิต
-// ใช้ข้อมูลจาก workers ที่มีอยู่ใน DB
-//
-// 🔧 จุดที่แก้ Logic ทีหลัง → ค้นหาคำว่า "TODO-LOGIC"
+// หน้าจัดทีม + ทำนายผลผลิต (เวอร์ชันง่ายสุด)
+// 🔧 แก้ Logic ทีหลัง → ค้นหา "TODO-LOGIC"
 // ============================================================
 
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, TextInput,
-  RefreshControl,
+  View, Text, ScrollView, TouchableOpacity, TextInput, RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
@@ -17,72 +14,44 @@ import { C, Card, Button, Header, Empty } from './Components';
 import { getWorkersWithRecords } from './db';
 
 // ============================================================
-// ประเภทงาน + หน่วยวัด
-// 🔧 TODO-LOGIC #1: เพิ่ม/แก้ประเภทงานและหน่วยวัดตรงนี้
-//
-// สำคัญ: id ต้องตรงกับ work_type ที่บันทึกใน WorkerStatsScreen
-// WorkerStatsScreen บันทึก work_type เป็นภาษาไทย เช่น 'ผูกเหล็ก'
-// ดังนั้น id ตรงนี้ต้องเป็นภาษาไทยด้วย
+// ประเภทงาน — id ต้องตรงกับ work_type ที่บันทึกใน WorkerStatsScreen
+// 🔧 TODO-LOGIC #1: เพิ่ม/แก้ประเภทงานตรงนี้
 // ============================================================
 const WORK_TYPES = [
-  { id: 'ผูกเหล็ก', name: 'ผูกเหล็ก', unit: 'กก./วัน', icon: 'construct-outline' },
-  { id: 'เทปูน', name: 'เทปูน', unit: 'ลบ.ม./วัน', icon: 'cube-outline' },
-  { id: 'ก่ออิฐ', name: 'ก่ออิฐ', unit: 'ตร.ม./วัน', icon: 'grid-outline' },
-  { id: 'ฉาบปูน', name: 'ฉาบปูน', unit: 'ตร.ม./วัน', icon: 'layers-outline' },
-  { id: 'งานไม้', name: 'งานไม้', unit: 'ตร.ม./วัน', icon: 'hammer-outline' },
-  { id: 'งานไฟฟ้า', name: 'งานไฟฟ้า', unit: 'จุด/วัน', icon: 'flash-outline' },
-  { id: 'งานประปา', name: 'งานประปา', unit: 'จุด/วัน', icon: 'water-outline' },
-  { id: 'งานทาสี', name: 'งานทาสี', unit: 'ตร.ม./วัน', icon: 'color-palette-outline' },
-  { id: 'งานกระเบื้อง', name: 'งานกระเบื้อง', unit: 'ตร.ม./วัน', icon: 'apps-outline' },
-  { id: 'งานฝ้า', name: 'งานฝ้า', unit: 'ตร.ม./วัน', icon: 'resize-outline' },
-  { id: 'งานเชื่อม', name: 'งานเชื่อม', unit: 'จุด/วัน', icon: 'flame-outline' },
-  { id: 'อื่นๆ', name: 'อื่นๆ', unit: 'หน่วย/วัน', icon: 'ellipsis-horizontal-outline' },
+  { id: 'ผูกเหล็ก', unit: 'กก./วัน', icon: 'construct-outline' },
+  { id: 'เทปูน', unit: 'ลบ.ม./วัน', icon: 'cube-outline' },
+  { id: 'ก่ออิฐ', unit: 'ตร.ม./วัน', icon: 'grid-outline' },
+  { id: 'ฉาบปูน', unit: 'ตร.ม./วัน', icon: 'layers-outline' },
+  { id: 'งานไม้', unit: 'ตร.ม./วัน', icon: 'hammer-outline' },
+  { id: 'งานไฟฟ้า', unit: 'จุด/วัน', icon: 'flash-outline' },
+  { id: 'งานประปา', unit: 'จุด/วัน', icon: 'water-outline' },
+  { id: 'งานทาสี', unit: 'ตร.ม./วัน', icon: 'color-palette-outline' },
+  { id: 'งานกระเบื้อง', unit: 'ตร.ม./วัน', icon: 'apps-outline' },
+  { id: 'งานฝ้า', unit: 'ตร.ม./วัน', icon: 'resize-outline' },
+  { id: 'งานเชื่อม', unit: 'จุด/วัน', icon: 'flame-outline' },
+  { id: 'อื่นๆ', unit: 'หน่วย/วัน', icon: 'ellipsis-horizontal-outline' },
 ];
 
 // ============================================================
-// Helper: คำนวณสถิติช่างแต่ละคน ต่อประเภทงาน
-// 🔧 TODO-LOGIC #2: แก้สูตรคำนวณเฉลี่ยตรงนี้
+// Helpers
 // ============================================================
-function getWorkerStats(worker, workTypeId) {
+
+// 🔧 TODO-LOGIC #2: แก้สูตรคำนวณตรงนี้
+function getAvgOutput(worker, workTypeId) {
   // records จาก DB มี field ชื่อ work_type (ไม่ใช่ workType)
-  const recs = worker.records.filter(r => r.work_type === workTypeId);
-  if (!recs.length) return null;
-
-  // ─── สูตรคำนวณ (แก้ตรงนี้) ───
-  const avgOutput = recs.reduce((s, r) => s + r.output, 0) / recs.length;
-  const avgQuality = recs.reduce((s, r) => s + r.quality, 0) / recs.length;
-  const maxOutput = Math.max(...recs.map(r => r.output));
-  const minOutput = Math.min(...recs.map(r => r.output));
-
-  return { avgOutput, avgQuality, maxOutput, minOutput, count: recs.length };
+  const recs = (worker.records || []).filter(r => r.work_type === workTypeId);
+  if (recs.length === 0) return 0;
+  return recs.reduce((sum, r) => sum + (r.output || 0), 0) / recs.length;
 }
 
-// ============================================================
-// Helper: คำนวณศักยภาพทีม
-// 🔧 TODO-LOGIC #3: แก้สูตรรวมกำลังผลิตทีมตรงนี้
-// ============================================================
-function calcTeamStats(members, workTypeId) {
-  if (!members.length) return null;
-  const stats = members
-    .map(m => ({ ...m, stats: getWorkerStats(m, workTypeId) }))
-    .filter(m => m.stats);
-  if (!stats.length) return null;
-
-  // ─── สูตร: รวมผลผลิต + เฉลี่ยคุณภาพ (แก้ตรงนี้) ───
-  const dailyCapacity = stats.reduce((s, m) => s + m.stats.avgOutput, 0);
-  const avgQuality = stats.reduce((s, m) => s + m.stats.avgQuality, 0) / stats.length;
-
-  return { dailyCapacity, avgQuality, count: stats.length, members: stats };
+function getAvgQuality(worker, workTypeId) {
+  const recs = (worker.records || []).filter(r => r.work_type === workTypeId);
+  if (recs.length === 0) return 0;
+  return recs.reduce((sum, r) => sum + (r.quality || 0), 0) / recs.length;
 }
 
-// ============================================================
-// Helper: ทำนายจำนวนวัน
-// 🔧 TODO-LOGIC #4: แก้สูตรทำนายตรงนี้
-// ============================================================
-function predictDays(dailyCapacity, totalWork) {
-  if (!dailyCapacity || !totalWork || totalWork <= 0) return null;
-  // ─── สูตร: ปริมาณงาน ÷ กำลังผลิต/วัน (แก้ตรงนี้) ───
-  return Math.ceil(totalWork / dailyCapacity);
+function hasRecordsFor(worker, workTypeId) {
+  return (worker.records || []).some(r => r.work_type === workTypeId);
 }
 
 function qualityColor(q) {
@@ -100,53 +69,39 @@ export default function TeamCalcScreen({ navigation }) {
   const [tab, setTab] = useState('team');
 
   const load = async () => {
-    try { setWorkers(await getWorkersWithRecords()); }
-    catch (e) { console.log('TeamCalc load error:', e); }
+    try {
+      const data = await getWorkersWithRecords();
+      console.log('Loaded workers:', JSON.stringify(data, null, 2)); // debug
+      setWorkers(data);
+    } catch (e) { console.log('Load error:', e); }
   };
   useFocusEffect(useCallback(() => { load(); }, []));
-
-  // หาว่าใน DB มี work_type อะไรบ้างจริงๆ (เพื่อแสดงเฉพาะที่มีข้อมูล)
-  const allWorkTypes = useMemo(() => {
-    const typesInDB = new Set();
-    workers.forEach(w => w.records.forEach(r => { if (r.work_type) typesInDB.add(r.work_type); }));
-    // รวม: WORK_TYPES ที่กำหนดไว้ + work_type ที่มีใน DB แต่ไม่อยู่ใน list
-    const result = [...WORK_TYPES];
-    typesInDB.forEach(t => {
-      if (!result.find(wt => wt.id === t)) {
-        result.push({ id: t, name: t, unit: 'หน่วย/วัน', icon: 'ellipsis-horizontal-outline' });
-      }
-    });
-    return result;
-  }, [workers]);
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <Header title="จัดทีมและทำนายผลผลิต" onBack={() => navigation.goBack()} />
 
-      {/* Tab switcher */}
+      {/* Tab */}
       <View style={{ flexDirection: 'row', backgroundColor: C.white, borderBottomWidth: 1, borderBottomColor: C.border }}>
         {[
           { key: 'team', label: 'จัดทีม', icon: 'people-outline' },
           { key: 'predict', label: 'ทำนายผลผลิต', icon: 'calculator-outline' },
-        ].map(t => {
-          const active = tab === t.key;
-          return (
-            <TouchableOpacity key={t.key} onPress={() => setTab(t.key)}
-              style={{ flex: 1, alignItems: 'center', paddingVertical: 12, borderBottomWidth: 2, borderBottomColor: active ? C.primary : 'transparent' }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Ionicons name={t.icon} size={16} color={active ? C.primary : C.textLight} />
-                <Text style={{ fontSize: 14, fontWeight: '600', color: active ? C.primary : C.textSec }}>{t.label}</Text>
-              </View>
-            </TouchableOpacity>
-          );
-        })}
+        ].map(t => (
+          <TouchableOpacity key={t.key} onPress={() => setTab(t.key)}
+            style={{ flex: 1, alignItems: 'center', paddingVertical: 12, borderBottomWidth: 2, borderBottomColor: tab === t.key ? C.primary : 'transparent' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Ionicons name={t.icon} size={16} color={tab === t.key ? C.primary : C.textLight} />
+              <Text style={{ fontSize: 14, fontWeight: '600', color: tab === t.key ? C.primary : C.textSec }}>{t.label}</Text>
+            </View>
+          </TouchableOpacity>
+        ))}
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}>
         {tab === 'team'
-          ? <TeamTab workers={workers} workTypes={allWorkTypes} />
-          : <PredictTab workers={workers} workTypes={allWorkTypes} />
+          ? <TeamTab workers={workers} />
+          : <PredictTab workers={workers} />
         }
       </ScrollView>
     </View>
@@ -154,111 +109,159 @@ export default function TeamCalcScreen({ navigation }) {
 }
 
 // ============================================================
-// TAB: จัดทีม
+// แท็บจัดทีม
 // ============================================================
-function TeamTab({ workers, workTypes }) {
-  const [workType, setWorkType] = useState(workTypes[0]?.id || '');
+function TeamTab({ workers }) {
+  const [workType, setWorkType] = useState('ผูกเหล็ก');
   const [selectedIds, setSelectedIds] = useState([]);
-  const wt = workTypes.find(w => w.id === workType);
 
-  const candidates = useMemo(() => {
-    return workers.map(w => ({ ...w, stats: getWorkerStats(w, workType) })).filter(c => c.stats);
-  }, [workers, workType]);
+  const wt = WORK_TYPES.find(w => w.id === workType) || WORK_TYPES[0];
 
-  const selected = workers.filter(w => selectedIds.includes(w.id));
-  const teamStats = useMemo(() => calcTeamStats(selected, workType), [selected, workType]);
+  // ช่างที่มีสถิติงานประเภทนี้
+  const candidates = workers.filter(w => hasRecordsFor(w, workType));
 
-  const toggle = (id) => setSelectedIds(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
+  // ช่างที่ถูกเลือก
+  const team = candidates.filter(w => selectedIds.includes(w.id));
+
+  // 🔧 TODO-LOGIC #3: แก้สูตรรวมทีมตรงนี้
+  const teamOutput = team.reduce((sum, w) => sum + getAvgOutput(w, workType), 0);
+  const teamQuality = team.length > 0
+    ? team.reduce((sum, w) => sum + getAvgQuality(w, workType), 0) / team.length
+    : 0;
+
+  const toggle = (id) => {
+    setSelectedIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
 
   return (
     <View>
       {/* เลือกประเภทงาน */}
       <Card>
-        <Text style={{ fontSize: 14, fontWeight: '600', color: C.text, marginBottom: 10 }}>เลือกประเภทงาน</Text>
+        <Text style={{ fontSize: 14, fontWeight: '600', color: C.text, marginBottom: 10 }}>
+          เลือกประเภทงาน
+        </Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
           <View style={{ flexDirection: 'row', gap: 8 }}>
-            {workTypes.map(w => {
-              const active = workType === w.id;
-              return (
-                <TouchableOpacity key={w.id} onPress={() => { setWorkType(w.id); setSelectedIds([]); }}
-                  style={{
-                    flexDirection: 'row', alignItems: 'center', gap: 6,
-                    paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20,
-                    backgroundColor: active ? C.accent : '#F3F4F6',
-                    borderWidth: active ? 0 : 1, borderColor: C.border,
-                  }}>
-                  <Ionicons name={w.icon} size={14} color={active ? '#fff' : C.textSec} />
-                  <Text style={{ color: active ? '#fff' : C.textSec, fontWeight: '600', fontSize: 12 }}>{w.name}</Text>
-                </TouchableOpacity>
-              );
-            })}
+            {WORK_TYPES.map(w => (
+              <TouchableOpacity key={w.id}
+                onPress={() => { setWorkType(w.id); setSelectedIds([]); }}
+                style={{
+                  flexDirection: 'row', alignItems: 'center', gap: 6,
+                  paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20,
+                  backgroundColor: workType === w.id ? C.accent : '#F3F4F6',
+                  borderWidth: workType === w.id ? 0 : 1, borderColor: C.border,
+                }}>
+                <Ionicons name={w.icon} size={14} color={workType === w.id ? '#fff' : C.textSec} />
+                <Text style={{ color: workType === w.id ? '#fff' : C.textSec, fontWeight: '600', fontSize: 12 }}>
+                  {w.id}
+                </Text>
+              </TouchableOpacity>
+            ))}
           </View>
         </ScrollView>
       </Card>
 
       {/* รายชื่อช่าง */}
       <Text style={{ fontSize: 15, fontWeight: '700', color: C.text, marginTop: 16, marginBottom: 10 }}>
-        เลือกช่างเข้าทีม ({wt?.name || '-'})
+        เลือกช่างเข้าทีม ({wt.id})
       </Text>
-      {candidates.length > 0 ? candidates.map(c => {
-        const active = selectedIds.includes(c.id);
+
+      {candidates.length > 0 ? candidates.map(worker => {
+        const isSelected = selectedIds.includes(worker.id);
+        const avg = getAvgOutput(worker, workType);
+        const recCount = (worker.records || []).filter(r => r.work_type === workType).length;
+
         return (
-          <Card key={c.id} onPress={() => toggle(c.id)} style={{
-            borderWidth: 2, borderColor: active ? C.accent : 'transparent',
-            backgroundColor: active ? '#FEF3C7' : C.white,
+          <Card key={worker.id} onPress={() => toggle(worker.id)} style={{
+            borderWidth: 2,
+            borderColor: isSelected ? C.accent : 'transparent',
+            backgroundColor: isSelected ? '#FEF3C7' : C.white,
           }}>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <Text style={{ fontSize: 28, marginRight: 12 }}>👷</Text>
+              {/* Avatar */}
+              <View style={{
+                width: 44, height: 44, borderRadius: 22, backgroundColor: '#F3F4F6',
+                alignItems: 'center', justifyContent: 'center', marginRight: 12,
+              }}>
+                <Text style={{ fontSize: 22 }}>👷</Text>
+              </View>
+
+              {/* ชื่อ + ตำแหน่ง */}
               <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 15, fontWeight: '700', color: C.text }}>{c.name}</Text>
-                <Text style={{ fontSize: 12, color: C.textSec }}>{c.role} • {c.stats.count} บันทึก</Text>
+                <Text style={{ fontSize: 15, fontWeight: '700', color: C.text }}>
+                  {worker.name || 'ไม่มีชื่อ'}
+                </Text>
+                <Text style={{ fontSize: 12, color: C.textSec }}>
+                  {worker.role || '-'} • {recCount} บันทึก
+                </Text>
               </View>
+
+              {/* ค่าเฉลี่ย */}
               <View style={{ alignItems: 'flex-end', marginRight: 10 }}>
-                <Text style={{ fontSize: 18, fontWeight: '800', color: C.text }}>{c.stats.avgOutput.toFixed(1)}</Text>
-                <Text style={{ fontSize: 10, color: C.textLight }}>{wt?.unit}</Text>
+                <Text style={{ fontSize: 18, fontWeight: '800', color: C.text }}>
+                  {avg.toFixed(1)}
+                </Text>
+                <Text style={{ fontSize: 10, color: C.textLight }}>{wt.unit}</Text>
               </View>
+
+              {/* ปุ่มเลือก */}
               <View style={{
                 width: 32, height: 32, borderRadius: 8,
-                backgroundColor: active ? C.accent : '#E5E7EB',
+                backgroundColor: isSelected ? C.accent : '#E5E7EB',
                 alignItems: 'center', justifyContent: 'center',
               }}>
-                <Ionicons name={active ? 'checkmark' : 'add'} size={18} color="#fff" />
+                <Ionicons name={isSelected ? 'checkmark' : 'add'} size={18} color="#fff" />
               </View>
             </View>
           </Card>
         );
-      }) : <Empty icon="people-outline" title={`ไม่มีช่างที่มีสถิติ "${wt?.name || ''}"`} subtitle="ให้เพิ่มสถิติงานประเภทนี้ให้ช่างก่อน" />}
+      }) : (
+        <Empty icon="people-outline" title={`ไม่มีช่างที่มีสถิติ "${wt.id}"`}
+          subtitle="ให้เพิ่มสถิติงานประเภทนี้ให้ช่างก่อนในหน้าสถิติช่าง" />
+      )}
 
-      {/* สรุปศักยภาพทีม */}
-      {teamStats && (
+      {/* สรุปทีม */}
+      {team.length > 0 && (
         <Card style={{ marginTop: 16, backgroundColor: C.primary }}>
-          <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700', marginBottom: 14 }}>สรุปศักยภาพทีม</Text>
+          <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700', marginBottom: 14 }}>
+            สรุปศักยภาพทีม
+          </Text>
+
+          {/* ตัวเลขสรุป */}
           <View style={{ flexDirection: 'row', gap: 10 }}>
             <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 10, padding: 14, alignItems: 'center' }}>
-              <Text style={{ color: C.accent, fontSize: 24, fontWeight: '800' }}>{teamStats.count}</Text>
+              <Text style={{ color: C.accent, fontSize: 24, fontWeight: '800' }}>{team.length}</Text>
               <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11 }}>สมาชิก</Text>
             </View>
             <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 10, padding: 14, alignItems: 'center' }}>
-              <Text style={{ color: C.accent, fontSize: 24, fontWeight: '800' }}>{teamStats.dailyCapacity.toFixed(1)}</Text>
-              <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11 }}>{wt?.unit}</Text>
+              <Text style={{ color: C.accent, fontSize: 24, fontWeight: '800' }}>{teamOutput.toFixed(1)}</Text>
+              <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11 }}>{wt.unit}</Text>
             </View>
             <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 10, padding: 14, alignItems: 'center' }}>
-              <Text style={{ color: qualityColor(teamStats.avgQuality), fontSize: 24, fontWeight: '800' }}>{teamStats.avgQuality.toFixed(1)}%</Text>
+              <Text style={{ color: qualityColor(teamQuality), fontSize: 24, fontWeight: '800' }}>{teamQuality.toFixed(1)}%</Text>
               <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11 }}>คุณภาพเฉลี่ย</Text>
             </View>
           </View>
 
-          <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, fontWeight: '600', marginTop: 16, marginBottom: 8 }}>สัดส่วนผลผลิตแต่ละคน</Text>
-          {teamStats.members.map(m => {
-            const pct = (m.stats.avgOutput / teamStats.dailyCapacity) * 100;
+          {/* สัดส่วนแต่ละคน */}
+          <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, fontWeight: '600', marginTop: 16, marginBottom: 8 }}>
+            สัดส่วนผลผลิตแต่ละคน
+          </Text>
+          {team.map(w => {
+            const avg = getAvgOutput(w, workType);
+            const pct = teamOutput > 0 ? (avg / teamOutput) * 100 : 0;
             return (
-              <View key={m.id} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-                <Text style={{ color: '#fff', fontSize: 13, fontWeight: '600', width: 70 }}>{m.name}</Text>
+              <View key={w.id} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+                <Text style={{ color: '#fff', fontSize: 13, fontWeight: '600', width: 80 }}>
+                  {w.name}
+                </Text>
                 <View style={{ flex: 1, height: 20, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 6, overflow: 'hidden' }}>
                   <View style={{ width: `${pct}%`, height: '100%', backgroundColor: C.accent, borderRadius: 6 }} />
                 </View>
-                <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, width: 60, textAlign: 'right' }}>
-                  {m.stats.avgOutput.toFixed(1)} ({pct.toFixed(0)}%)
+                <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, width: 70, textAlign: 'right' }}>
+                  {avg.toFixed(1)} ({pct.toFixed(0)}%)
                 </Text>
               </View>
             );
@@ -270,25 +273,30 @@ function TeamTab({ workers, workTypes }) {
 }
 
 // ============================================================
-// TAB: ทำนายผลผลิต
+// แท็บทำนายผลผลิต
 // ============================================================
-function PredictTab({ workers, workTypes }) {
-  const [workType, setWorkType] = useState(workTypes[0]?.id || '');
+function PredictTab({ workers }) {
+  const [workType, setWorkType] = useState('ผูกเหล็ก');
   const [selectedIds, setSelectedIds] = useState([]);
   const [totalWork, setTotalWork] = useState('');
-  const wt = workTypes.find(w => w.id === workType);
 
-  const candidates = useMemo(() => {
-    return workers.map(w => ({ ...w, stats: getWorkerStats(w, workType) })).filter(c => c.stats);
-  }, [workers, workType]);
+  const wt = WORK_TYPES.find(w => w.id === workType) || WORK_TYPES[0];
+  const candidates = workers.filter(w => hasRecordsFor(w, workType));
+  const team = candidates.filter(w => selectedIds.includes(w.id));
 
-  const selected = workers.filter(w => selectedIds.includes(w.id));
-  const teamStats = useMemo(() => calcTeamStats(selected, workType), [selected, workType]);
-
+  // 🔧 TODO-LOGIC #4: แก้สูตรทำนายตรงนี้
+  const teamOutput = team.reduce((sum, w) => sum + getAvgOutput(w, workType), 0);
+  const teamQuality = team.length > 0
+    ? team.reduce((sum, w) => sum + getAvgQuality(w, workType), 0) / team.length
+    : 0;
   const tw = parseFloat(totalWork) || 0;
-  const daysNeeded = teamStats ? predictDays(teamStats.dailyCapacity, tw) : null;
+  const daysNeeded = (teamOutput > 0 && tw > 0) ? Math.ceil(tw / teamOutput) : null;
 
-  const toggle = (id) => setSelectedIds(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
+  const toggle = (id) => {
+    setSelectedIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
 
   return (
     <View>
@@ -297,86 +305,91 @@ function PredictTab({ workers, workTypes }) {
         <Text style={{ fontSize: 14, fontWeight: '600', color: C.text, marginBottom: 10 }}>ประเภทงาน</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
           <View style={{ flexDirection: 'row', gap: 8 }}>
-            {workTypes.map(w => {
-              const active = workType === w.id;
-              return (
-                <TouchableOpacity key={w.id} onPress={() => { setWorkType(w.id); setSelectedIds([]); }}
-                  style={{
-                    flexDirection: 'row', alignItems: 'center', gap: 6,
-                    paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20,
-                    backgroundColor: active ? C.accent : '#F3F4F6',
-                    borderWidth: active ? 0 : 1, borderColor: C.border,
-                  }}>
-                  <Ionicons name={w.icon} size={14} color={active ? '#fff' : C.textSec} />
-                  <Text style={{ color: active ? '#fff' : C.textSec, fontWeight: '600', fontSize: 12 }}>{w.name}</Text>
-                </TouchableOpacity>
-              );
-            })}
+            {WORK_TYPES.map(w => (
+              <TouchableOpacity key={w.id}
+                onPress={() => { setWorkType(w.id); setSelectedIds([]); }}
+                style={{
+                  flexDirection: 'row', alignItems: 'center', gap: 6,
+                  paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20,
+                  backgroundColor: workType === w.id ? C.accent : '#F3F4F6',
+                  borderWidth: workType === w.id ? 0 : 1, borderColor: C.border,
+                }}>
+                <Ionicons name={w.icon} size={14} color={workType === w.id ? '#fff' : C.textSec} />
+                <Text style={{ color: workType === w.id ? '#fff' : C.textSec, fontWeight: '600', fontSize: 12 }}>{w.id}</Text>
+              </TouchableOpacity>
+            ))}
           </View>
         </ScrollView>
       </Card>
 
       {/* เลือกทีม */}
       <Text style={{ fontSize: 15, fontWeight: '700', color: C.text, marginTop: 16, marginBottom: 10 }}>เลือกทีม</Text>
-      {candidates.map(c => {
-        const active = selectedIds.includes(c.id);
+      {candidates.length > 0 ? candidates.map(worker => {
+        const isSelected = selectedIds.includes(worker.id);
+        const avg = getAvgOutput(worker, workType);
         return (
-          <Card key={c.id} onPress={() => toggle(c.id)} style={{
-            borderWidth: 2, borderColor: active ? C.accent : 'transparent',
-            backgroundColor: active ? '#FEF3C7' : C.white,
+          <Card key={worker.id} onPress={() => toggle(worker.id)} style={{
+            borderWidth: 2,
+            borderColor: isSelected ? C.accent : 'transparent',
+            backgroundColor: isSelected ? '#FEF3C7' : C.white,
           }}>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <Text style={{ fontSize: 24, marginRight: 10 }}>👷</Text>
+              <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center', marginRight: 10 }}>
+                <Text style={{ fontSize: 18 }}>👷</Text>
+              </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 14, fontWeight: '700', color: C.text }}>{c.name}</Text>
-                <Text style={{ fontSize: 11, color: C.textSec }}>{c.stats.avgOutput.toFixed(1)} {wt?.unit}</Text>
+                <Text style={{ fontSize: 14, fontWeight: '700', color: C.text }}>{worker.name}</Text>
+                <Text style={{ fontSize: 11, color: C.textSec }}>{avg.toFixed(1)} {wt.unit}</Text>
               </View>
               <View style={{
                 width: 28, height: 28, borderRadius: 7,
-                backgroundColor: active ? C.accent : '#E5E7EB',
+                backgroundColor: isSelected ? C.accent : '#E5E7EB',
                 alignItems: 'center', justifyContent: 'center',
               }}>
-                <Ionicons name={active ? 'checkmark' : 'add'} size={16} color="#fff" />
+                <Ionicons name={isSelected ? 'checkmark' : 'add'} size={16} color="#fff" />
               </View>
             </View>
           </Card>
         );
-      })}
-      {candidates.length === 0 && <Empty icon="people-outline" title={`ไม่มีช่างที่มีสถิติ "${wt?.name || ''}"`} />}
+      }) : <Empty icon="people-outline" title={`ไม่มีช่างที่มีสถิติ "${wt.id}"`} />}
 
-      {/* ปริมาณงานทั้งหมด */}
+      {/* ปริมาณงาน */}
       <Card style={{ marginTop: 16 }}>
         <Text style={{ fontSize: 14, fontWeight: '600', color: C.text, marginBottom: 8 }}>
-          ปริมาณงานทั้งหมด ({wt?.unit?.replace('/วัน', '') || ''})
+          ปริมาณงานทั้งหมด ({wt.unit.replace('/วัน', '')})
         </Text>
         <View style={{
           flexDirection: 'row', alignItems: 'center', backgroundColor: '#F9FAFB',
           borderRadius: 10, borderWidth: 1, borderColor: C.border, paddingHorizontal: 12,
         }}>
           <Ionicons name="calculator-outline" size={18} color={C.textLight} style={{ marginRight: 8 }} />
-          <TextInput value={totalWork} onChangeText={setTotalWork} placeholder="เช่น 5000" keyboardType="numeric"
+          <TextInput value={totalWork} onChangeText={setTotalWork}
+            placeholder="เช่น 5000" keyboardType="numeric"
             style={{ flex: 1, fontSize: 18, fontWeight: '700', color: C.text, paddingVertical: 14 }} />
         </View>
       </Card>
 
-      {/* ผลการทำนาย */}
-      {teamStats && (
+      {/* ผลทำนาย */}
+      {team.length > 0 && (
         <Card style={{ marginTop: 16, backgroundColor: C.primary }}>
-          <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13, fontWeight: '600', marginBottom: 14 }}>ผลการทำนาย</Text>
+          <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13, fontWeight: '600', marginBottom: 14 }}>
+            ผลการทำนาย
+          </Text>
+
           <View style={{ flexDirection: 'row', gap: 10 }}>
             <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 10, padding: 14 }}>
               <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>กำลังผลิตทีม/วัน</Text>
-              <Text style={{ fontSize: 24, fontWeight: '800', color: C.accent, marginTop: 4 }}>{teamStats.dailyCapacity.toFixed(1)}</Text>
-              <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>{wt?.unit}</Text>
+              <Text style={{ fontSize: 24, fontWeight: '800', color: C.accent, marginTop: 4 }}>{teamOutput.toFixed(1)}</Text>
+              <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>{wt.unit}</Text>
             </View>
             <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 10, padding: 14 }}>
               <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>คุณภาพเฉลี่ย</Text>
-              <Text style={{ fontSize: 24, fontWeight: '800', color: qualityColor(teamStats.avgQuality), marginTop: 4 }}>{teamStats.avgQuality.toFixed(1)}%</Text>
+              <Text style={{ fontSize: 24, fontWeight: '800', color: qualityColor(teamQuality), marginTop: 4 }}>{teamQuality.toFixed(1)}%</Text>
               <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>ของทีม</Text>
             </View>
           </View>
 
-          {daysNeeded && (
+          {daysNeeded ? (
             <View style={{
               marginTop: 16, padding: 20, alignItems: 'center',
               backgroundColor: 'rgba(245,158,11,0.15)', borderRadius: 10,
@@ -385,15 +398,15 @@ function PredictTab({ workers, workTypes }) {
               <Text style={{ fontSize: 11, color: C.accent, fontWeight: '600' }}>จำนวนวันที่ต้องใช้</Text>
               <Text style={{ fontSize: 48, fontWeight: '900', color: C.accent, marginTop: 4 }}>{daysNeeded}</Text>
               <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', marginTop: 4, textAlign: 'center' }}>
-                วันทำงาน ({tw.toLocaleString()} ÷ {teamStats.dailyCapacity.toFixed(1)} {wt?.unit})
+                วันทำงาน ({tw.toLocaleString()} ÷ {teamOutput.toFixed(1)} {wt.unit})
               </Text>
             </View>
-          )}
-
-          {!tw && (
+          ) : (
             <View style={{ marginTop: 14, alignItems: 'center', paddingVertical: 16 }}>
               <Ionicons name="arrow-up-outline" size={24} color="rgba(255,255,255,0.3)" />
-              <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13, marginTop: 6 }}>กรอกปริมาณงานด้านบนเพื่อทำนายจำนวนวัน</Text>
+              <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13, marginTop: 6 }}>
+                กรอกปริมาณงานด้านบนเพื่อทำนายจำนวนวัน
+              </Text>
             </View>
           )}
         </Card>
