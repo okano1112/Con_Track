@@ -263,26 +263,46 @@ export async function getWorkersWithRecords() {
     FROM workers w LEFT JOIN worker_records r ON w.id=r.worker_id
     ORDER BY w.name ASC
   `);
+  
   const map = {};
+  
   rows.forEach(row => {
+    // 1. สร้างฐานข้อมูลช่าง (หากยังไม่มีใน map)
     if (!map[row.id]) {
       map[row.id] = {
         id: row.id, name: row.name, role: row.role,
         age: row.age, phone: row.phone, avatar_uri: row.avatar_uri,
-        records: [],
+        records: [], // คง Array เดิมไว้ เพื่อให้หน้าสถิตินำไปคำนวณคะแนนต่อได้
+        records_text: '', // ✨ ตัวแปรใหม่! สำหรับเก็บข้อความประวัติสวยๆ ที่พร้อมแสดงผล
       };
     }
+    
+    // 2. ดันข้อมูลประวัติเข้า Array (ถ้ามีประวัติ)
     if (row.rid) {
       map[row.id].records.push({
         id: row.rid,
-        work_type: row.work_type,  // ← ชื่อนี้ใช้ทั้งโปรเจกต์
+        work_type: row.work_type,
         date: row.date,
         output: row.output,
         quality: row.quality,
       });
     }
   });
-  return Object.values(map);
+
+  // ✨ 3. แปลง Array ให้เป็นข้อความ (String) สวยๆ เพื่อไม่ให้คุณต้องไปจัดการ Array ในหน้า UI
+  const finalResult = Object.values(map).map(worker => {
+    if (worker.records.length > 0) {
+      // เอา Array มาเรียงร้อยต่อกัน และแทรกการขึ้นบรรทัดใหม่ (\n)
+      worker.records_text = worker.records
+        .map(r => `• วันที่ ${r.date} | งาน: ${r.work_type} (ผลผลิต: ${r.output}, คุณภาพ: ${r.quality})`)
+        .join('\n'); // เชื่อมแต่ละบรรทัดด้วยการขึ้นบรรทัดใหม่
+    } else {
+      worker.records_text = 'ยังไม่มีประวัติการทำงาน';
+    }
+    return worker;
+  });
+
+  return finalResult;
 }
 
 // work_type ที่บันทึก = ภาษาไทย เช่น 'ผูกเหล็ก', 'ก่ออิฐ'
