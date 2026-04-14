@@ -24,6 +24,9 @@ export const getWorkersWithRecords = async () => {
         name: row.name,
         role: row.role || '',
         avatar: row.avatar || '👷',
+        age: row.age || 0,
+        phone: row.phone || '',
+        avatar_uri: row.avatar_uri || '',
         records: [],
       };
     }
@@ -42,15 +45,40 @@ export const getWorkersWithRecords = async () => {
 };
 
 // ============================================================
-// เพิ่มช่างใหม่
+// เพิ่มช่างใหม่ (รองรับ age, phone, avatar_uri)
 // ============================================================
-export const insertWorker = async (name, role, avatar) => {
+export const insertWorker = async ({ name, role, avatar, age, phone, avatarUri }) => {
   const db = await getDatabase();
   const result = await db.runAsync(
-    'INSERT INTO workers (name, role, avatar) VALUES (?, ?, ?)',
-    [name, role || '', avatar || '👷']
+    'INSERT INTO workers (name, role, avatar, age, phone, avatar_uri) VALUES (?, ?, ?, ?, ?, ?)',
+    [
+      name || '',
+      role || '',
+      avatar || '👷',
+      age || 0,
+      phone || '',
+      avatarUri || '',
+    ]
   );
   return result.lastInsertRowId;
+};
+
+// ============================================================
+// แก้ไขข้อมูลช่าง
+// ============================================================
+export const updateWorker = async (workerId, { name, role, avatar, age, phone, avatarUri }) => {
+  const db = await getDatabase();
+  await db.runAsync(
+    `UPDATE workers SET 
+      name = COALESCE(?, name),
+      role = COALESCE(?, role),
+      avatar = COALESCE(?, avatar),
+      age = COALESCE(?, age),
+      phone = COALESCE(?, phone),
+      avatar_uri = COALESCE(?, avatar_uri)
+     WHERE id = ?`,
+    [name, role, avatar, age, phone, avatarUri, workerId]
+  );
 };
 
 // ============================================================
