@@ -1,4 +1,7 @@
-// src/screens/WorkerStatsScreen.js
+// src/WorkerStatsScreen.js
+// ============================================================
+// หน้าสถิติช่าง — เพิ่มช่าง, เพิ่มสถิติ, ดูรายละเอียด, จัดอันดับ
+// ============================================================
 
 import React, { useState, useCallback } from 'react';
 import {
@@ -8,16 +11,13 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
-import { C } from './Components';
-import { Card, Badge, ProgressBar, Button, Input, Empty, WORKER_ROLES as ROLES_LIST } from './Components';
-import {
-  getWorkersWithRecords, insertWorker, insertWorkerRecord, deleteWorker,
-} from './db';
+import { C, Card, Badge, ProgressBar, Button, Input, Empty } from './Components';
+import { getWorkersWithRecords, insertWorker, insertWorkerRecord, deleteWorker } from './db';
 
 // ============================================================
-// ตำแหน่งช่างในไซต์ก่อสร้างจริง
+// ตำแหน่งช่าง (สำหรับ picker ตอนเพิ่มช่าง)
 // ============================================================
-const WORKER_ROLES = [
+const ROLES = [
   { key: 'ช่างไม้', icon: 'hammer-outline', color: '#8B4513' },
   { key: 'ช่างก่อ', icon: 'grid-outline', color: '#F59E0B' },
   { key: 'ช่างฉาบ', icon: 'layers-outline', color: '#A3A3A3' },
@@ -38,6 +38,7 @@ const WORKER_ROLES = [
   { key: 'อื่นๆ', icon: 'ellipsis-horizontal-circle-outline', color: '#9CA3AF' },
 ];
 
+// ประเภทงาน (สำหรับบันทึกสถิติ) — ค่าที่เก็บใน DB คือ key ภาษาไทย
 const WORK_TYPES = [
   { key: 'ผูกเหล็ก', icon: 'construct-outline', color: '#3B82F6' },
   { key: 'เทปูน', icon: 'cube-outline', color: '#8B5CF6' },
@@ -54,12 +55,11 @@ const WORK_TYPES = [
 ];
 
 // ============================================================
-// Helper Functions
+// Helpers
 // ============================================================
 function calcAvg(records, field) {
-  if (!records || records.length === 0) return 0;
-  const sum = records.reduce((a, r) => a + (r[field] || 0), 0);
-  return Math.round((sum / records.length) * 10) / 10;
+  if (!records?.length) return 0;
+  return Math.round((records.reduce((s, r) => s + (r[field] || 0), 0) / records.length) * 10) / 10;
 }
 
 function getGrade(avg) {
@@ -70,14 +70,12 @@ function getGrade(avg) {
   return { label: 'F', color: '#EF4444', bg: '#FEE2E2' };
 }
 
-function getOverallScore(worker) {
-  const avgOutput = calcAvg(worker.records, 'output');
-  const avgQuality = calcAvg(worker.records, 'quality');
-  return Math.round((avgOutput + avgQuality) / 2);
+function getScore(worker) {
+  return Math.round((calcAvg(worker.records, 'output') + calcAvg(worker.records, 'quality')) / 2);
 }
 
 // ============================================================
-// Main Component
+// Main
 // ============================================================
 export default function WorkerStatsScreen({ navigation }) {
   const [workers, setWorkers] = useState([]);
@@ -85,134 +83,60 @@ export default function WorkerStatsScreen({ navigation }) {
   const [refreshing, setRefreshing] = useState(false);
   const [selectedWorker, setSelectedWorker] = useState(null);
 
-  // Modals
   const [showAddWorker, setShowAddWorker] = useState(false);
   const [showAddRecord, setShowAddRecord] = useState(false);
   const [showDetail, setShowDetail] = useState(false);
 
-  // Forms
-  const [workerForm, setWorkerForm] = useState({
-    name: '', role: '', customRole: '', age: '', phone: '', avatarUri: '',
-  });
-  const [recordForm, setRecordForm] = useState({
-    workType: 'ผูกเหล็ก', date: '', output: '', quality: '',
-  });
+  const [workerForm, setWorkerForm] = useState({ name: '', role: '', customRole: '', age: '', phone: '', avatarUri: '' });
+  const [recordForm, setRecordForm] = useState({ workType: 'ผูกเหล็ก', date: '', output: '', quality: '' });
   const [saving, setSaving] = useState(false);
 
-  // ============================================================
-  // Data Loading
-  // ============================================================
+  // ── Load ──
   const loadData = async () => {
-    try {
-      const data = await getWorkersWithRecords();
-      setWorkers(data);
-    } catch (error) {
-      console.error('โหลดข้อมูลล้มเหลว:', error);
-    }
+    try { setWorkers(await getWorkersWithRecords()); }
+    catch (e) { console.log('Load error:', e); }
   };
-
   useFocusEffect(useCallback(() => { loadData(); }, []));
 
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await loadData();
-    setRefreshing(false);
-  };
-
-  // ============================================================
-  // Image Picker — ขอสิทธิ์กล้อง/คลังรูป
-  // ============================================================
-  const pickImageFromGallery = async () => {
-    // ขอ permission คลังรูป
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert(
-        'ต้องการสิทธิ์เข้าถึงคลังรูป',
-        'กรุณาเปิดสิทธิ์ในการตั้งค่าเพื่อเลือกรูปภาพ',
-        [
-          { text: 'ยกเลิก', style: 'cancel' },
-          { text: 'เปิดตั้งค่า', onPress: () => Linking.openSettings() },
-        ]
-      );
+  // ── Image Picker ──
+  const pickImage = async (fromCamera) => {
+    const perm = fromCamera
+      ? await ImagePicker.requestCameraPermissionsAsync()
+      : await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (perm.status !== 'granted') {
+      Alert.alert('ต้องการสิทธิ์', 'กรุณาเปิดสิทธิ์ในตั้งค่า', [
+        { text: 'ยกเลิก' },
+        { text: 'เปิดตั้งค่า', onPress: () => Linking.openSettings() },
+      ]);
       return;
     }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.7,
-    });
-
+    const fn = fromCamera ? ImagePicker.launchCameraAsync : ImagePicker.launchImageLibraryAsync;
+    const result = await fn({ allowsEditing: true, aspect: [1, 1], quality: 0.7 });
     if (!result.canceled && result.assets?.[0]?.uri) {
-      setWorkerForm(prev => ({ ...prev, avatarUri: result.assets[0].uri }));
+      setWorkerForm(p => ({ ...p, avatarUri: result.assets[0].uri }));
     }
   };
 
-  const takePhotoFromCamera = async () => {
-    // ขอ permission กล้อง
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert(
-        'ต้องการสิทธิ์เข้าถึงกล้อง',
-        'กรุณาเปิดสิทธิ์กล้องในการตั้งค่าเพื่อถ่ายรูป',
-        [
-          { text: 'ยกเลิก', style: 'cancel' },
-          { text: 'เปิดตั้งค่า', onPress: () => Linking.openSettings() },
-        ]
-      );
-      return;
-    }
-
-    const result = await ImagePicker.launchCameraAsync({
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.7,
-    });
-
-    if (!result.canceled && result.assets?.[0]?.uri) {
-      setWorkerForm(prev => ({ ...prev, avatarUri: result.assets[0].uri }));
-    }
-  };
-
-  const showImagePickerOptions = () => {
-    Alert.alert('เลือกรูปภาพ', 'ต้องการเพิ่มรูปช่างอย่างไร?', [
-      { text: 'ถ่ายรูป', onPress: takePhotoFromCamera },
-      { text: 'เลือกจากคลังรูป', onPress: pickImageFromGallery },
+  const showImageOptions = () => {
+    Alert.alert('เลือกรูปภาพ', '', [
+      { text: 'ถ่ายรูป', onPress: () => pickImage(true) },
+      { text: 'เลือกจากคลัง', onPress: () => pickImage(false) },
       { text: 'ยกเลิก', style: 'cancel' },
     ]);
   };
 
-  // ============================================================
-  // Add Worker
-  // ============================================================
+  // ── Add Worker ──
   const handleAddWorker = async () => {
-    if (!workerForm.name.trim()) {
-      Alert.alert('แจ้งเตือน', 'กรุณากรอกชื่อช่าง');
-      return;
-    }
-    if (!workerForm.role) {
-      Alert.alert('แจ้งเตือน', 'กรุณาเลือกตำแหน่งงาน');
-      return;
-    }
-
-    const finalRole = workerForm.role === 'อื่นๆ'
-      ? (workerForm.customRole.trim() || 'อื่นๆ')
-      : workerForm.role;
-
-    const age = parseInt(workerForm.age);
-    if (workerForm.age && (isNaN(age) || age < 15 || age > 80)) {
-      Alert.alert('แจ้งเตือน', 'อายุต้องอยู่ระหว่าง 15 - 80 ปี');
-      return;
-    }
-
+    if (!workerForm.name.trim()) return Alert.alert('แจ้งเตือน', 'กรุณากรอกชื่อช่าง');
+    if (!workerForm.role) return Alert.alert('แจ้งเตือน', 'กรุณาเลือกตำแหน่งงาน');
+    const finalRole = workerForm.role === 'อื่นๆ' ? (workerForm.customRole.trim() || 'อื่นๆ') : workerForm.role;
+    const age = parseInt(workerForm.age) || 0;
     setSaving(true);
     try {
       await insertWorker({
         name: workerForm.name.trim(),
         role: finalRole,
-        avatar: '👷',
-        age: age || 0,
+        age,
         phone: workerForm.phone.trim(),
         avatarUri: workerForm.avatarUri,
       });
@@ -220,30 +144,17 @@ export default function WorkerStatsScreen({ navigation }) {
       setShowAddWorker(false);
       await loadData();
       Alert.alert('สำเร็จ', 'เพิ่มช่างเรียบร้อย');
-    } catch (error) {
-      Alert.alert('ผิดพลาด', error.message);
-    } finally {
-      setSaving(false);
-    }
+    } catch (e) { Alert.alert('ผิดพลาด', e.message); }
+    finally { setSaving(false); }
   };
 
-  // ============================================================
-  // Add Record
-  // ============================================================
+  // ── Add Record ──
   const handleAddRecord = async () => {
     if (!selectedWorker) return;
     const output = parseFloat(recordForm.output);
     const quality = parseFloat(recordForm.quality);
-
-    if (isNaN(output) || isNaN(quality)) {
-      Alert.alert('แจ้งเตือน', 'กรุณากรอกคะแนนผลผลิตและคุณภาพเป็นตัวเลข');
-      return;
-    }
-    if (output < 0 || output > 100 || quality < 0 || quality > 100) {
-      Alert.alert('แจ้งเตือน', 'คะแนนต้องอยู่ระหว่าง 0 - 100');
-      return;
-    }
-
+    if (isNaN(output) || isNaN(quality)) return Alert.alert('แจ้งเตือน', 'กรุณากรอกตัวเลข');
+    if (output < 0 || output > 100 || quality < 0 || quality > 100) return Alert.alert('แจ้งเตือน', 'คะแนน 0-100');
     setSaving(true);
     try {
       const today = recordForm.date.trim() || new Date().toISOString().split('T')[0];
@@ -251,251 +162,149 @@ export default function WorkerStatsScreen({ navigation }) {
       setRecordForm({ workType: 'ผูกเหล็ก', date: '', output: '', quality: '' });
       setShowAddRecord(false);
       await loadData();
-      Alert.alert('สำเร็จ', `บันทึกสถิติของ ${selectedWorker.name} เรียบร้อย`);
-    } catch (error) {
-      Alert.alert('ผิดพลาด', error.message);
-    } finally {
-      setSaving(false);
-    }
+      Alert.alert('สำเร็จ', `บันทึกสถิติ ${selectedWorker.name} เรียบร้อย`);
+    } catch (e) { Alert.alert('ผิดพลาด', e.message); }
+    finally { setSaving(false); }
   };
 
-  // ============================================================
-  // Delete Worker
-  // ============================================================
-  const handleDeleteWorker = (worker) => {
-    Alert.alert('ลบช่าง', `ต้องการลบ "${worker.name}" และสถิติทั้งหมดหรือไม่?`, [
-      { text: 'ยกเลิก', style: 'cancel' },
-      {
-        text: 'ลบ', style: 'destructive',
-        onPress: async () => {
-          await deleteWorker(worker.id);
-          setShowDetail(false);
-          setSelectedWorker(null);
-          await loadData();
-        },
-      },
+  // ── Delete Worker ──
+  const handleDelete = (w) => {
+    Alert.alert('ลบช่าง', `ลบ "${w.name}" และสถิติทั้งหมด?`, [
+      { text: 'ยกเลิก' },
+      { text: 'ลบ', style: 'destructive', onPress: async () => {
+        await deleteWorker(w.id); setShowDetail(false); setSelectedWorker(null); await loadData();
+      }},
     ]);
   };
 
-  // ============================================================
-  // Sorted / Ranked workers
-  // ============================================================
-  const rankedWorkers = [...workers]
-    .map(w => ({ ...w, overall: getOverallScore(w) }))
-    .sort((a, b) => b.overall - a.overall);
-
-  // ============================================================
-  // Render: Worker Avatar (รูปถ่าย หรือ emoji)
-  // ============================================================
-  const renderAvatar = (worker, size = 48) => {
+  // ── Avatar ──
+  const Avatar = ({ worker, size = 48 }) => {
     if (worker.avatar_uri) {
-      return (
-        <Image
-          source={{ uri: worker.avatar_uri }}
-          style={{
-            width: size, height: size, borderRadius: size / 2,
-            backgroundColor: '#F3F4F6',
-          }}
-        />
-      );
+      return <Image source={{ uri: worker.avatar_uri }} style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: '#F3F4F6' }} />;
     }
     return (
-      <View style={[styles.avatarCircle, { width: size, height: size, borderRadius: size / 2 }]}>
-        <Text style={{ fontSize: size * 0.5 }}>{worker.avatar || '👷'}</Text>
+      <View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center' }}>
+        <Text style={{ fontSize: size * 0.5 }}>👷</Text>
       </View>
     );
   };
 
+  // ── Ranked workers ──
+  const ranked = [...workers].map(w => ({ ...w, score: getScore(w) })).sort((a, b) => b.score - a.score);
+
   // ============================================================
-  // Render: Individual Tab
+  // TAB: รายบุคคล
   // ============================================================
-  const renderIndividualTab = () => (
+  const renderIndividual = () => (
     <View>
-      <Button
-        title="เพิ่มช่างใหม่"
-        icon="person-add-outline"
-        onPress={() => {
-          setWorkerForm({ name: '', role: '', customRole: '', age: '', phone: '', avatarUri: '' });
-          setShowAddWorker(true);
-        }}
-        style={{ marginBottom: 16 }}
-      />
+      <Button title="เพิ่มช่างใหม่" icon="person-add-outline" onPress={() => {
+        setWorkerForm({ name: '', role: '', customRole: '', age: '', phone: '', avatarUri: '' });
+        setShowAddWorker(true);
+      }} style={{ marginBottom: 16 }} />
 
-      {workers.length > 0 ? (
-        workers.map((worker) => {
-          const avgOutput = calcAvg(worker.records, 'output');
-          const avgQuality = calcAvg(worker.records, 'quality');
-          const overall = getOverallScore(worker);
-          const grade = getGrade(overall);
-
-          return (
-            <Card
-              key={worker.id}
-              onPress={() => { setSelectedWorker(worker); setShowDetail(true); }}
-            >
-              {/* Header Row */}
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
-                {renderAvatar(worker, 48)}
-                <View style={{ flex: 1, marginLeft: 12 }}>
-                  <Text style={{ fontSize: 16, fontWeight: '700', color: C.text }}>
-                    {worker.name}
-                  </Text>
-                  <Text style={{ fontSize: 13, color: C.textSecondary, marginTop: 2 }}>
-                    {worker.role || 'ไม่ระบุตำแหน่ง'}
-                    {worker.age ? ` • ${worker.age} ปี` : ''}
-                  </Text>
-                </View>
-                <Badge label={`เกรด ${grade.label}`} color={grade.color} bg={grade.bg} />
+      {workers.length > 0 ? workers.map(w => {
+        const avgOut = calcAvg(w.records, 'output');
+        const avgQ = calcAvg(w.records, 'quality');
+        const grade = getGrade(getScore(w));
+        return (
+          <Card key={w.id} onPress={() => { setSelectedWorker(w); setShowDetail(true); }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+              <Avatar worker={w} />
+              <View style={{ flex: 1, marginLeft: 12 }}>
+                <Text style={{ fontSize: 16, fontWeight: '700', color: C.text }}>{w.name}</Text>
+                <Text style={{ fontSize: 13, color: C.textSec }}>{w.role || '-'}{w.age ? ` • ${w.age} ปี` : ''}</Text>
               </View>
-
-              {/* Stats Bars */}
-              <View style={{ marginBottom: 8 }}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-                  <Text style={styles.statLabel}>ผลผลิต</Text>
-                  <Text style={styles.statValue}>{avgOutput}%</Text>
-                </View>
-                <ProgressBar progress={avgOutput} height={8} color="#3B82F6" />
+              <Badge label={`เกรด ${grade.label}`} color={grade.color} bg={grade.bg} />
+            </View>
+            <View style={{ marginBottom: 6 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 }}>
+                <Text style={{ fontSize: 12, color: C.textSec }}>ผลผลิต</Text>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: C.text }}>{avgOut}%</Text>
               </View>
-
-              <View style={{ marginBottom: 8 }}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-                  <Text style={styles.statLabel}>คุณภาพ</Text>
-                  <Text style={styles.statValue}>{avgQuality}%</Text>
-                </View>
-                <ProgressBar progress={avgQuality} height={8} color="#10B981" />
+              <ProgressBar progress={avgOut} height={7} color="#3B82F6" />
+            </View>
+            <View style={{ marginBottom: 6 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 }}>
+                <Text style={{ fontSize: 12, color: C.textSec }}>คุณภาพ</Text>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: C.text }}>{avgQ}%</Text>
               </View>
-
-              {/* Footer */}
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
-                <Text style={{ fontSize: 12, color: C.textLight }}>
-                  สถิติทั้งหมด {worker.records.length} รายการ
-                </Text>
-                <TouchableOpacity
-                  onPress={() => {
-                    setSelectedWorker(worker);
-                    setRecordForm({ workType: 'ผูกเหล็ก', date: '', output: '', quality: '' });
-                    setShowAddRecord(true);
-                  }}
-                  style={styles.addRecordBtn}
-                >
-                  <Ionicons name="add-circle-outline" size={16} color={C.primary} />
-                  <Text style={{ fontSize: 12, color: C.primary, fontWeight: '600', marginLeft: 4 }}>
-                    เพิ่มสถิติ
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </Card>
-          );
-        })
-      ) : (
-        <Empty
-          icon="people-outline"
-          title="ยังไม่มีข้อมูลช่าง"
-          subtitle="กดปุ่มด้านบนเพื่อเพิ่มช่างคนแรก"
-        />
-      )}
+              <ProgressBar progress={avgQ} height={7} color="#10B981" />
+            </View>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 }}>
+              <Text style={{ fontSize: 11, color: C.textLight }}>สถิติ {w.records.length} รายการ</Text>
+              <TouchableOpacity onPress={() => { setSelectedWorker(w); setRecordForm({ workType: 'ผูกเหล็ก', date: '', output: '', quality: '' }); setShowAddRecord(true); }}
+                style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: C.primary + '10', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8 }}>
+                <Ionicons name="add-circle-outline" size={14} color={C.primary} />
+                <Text style={{ fontSize: 11, color: C.primary, fontWeight: '600', marginLeft: 4 }}>เพิ่มสถิติ</Text>
+              </TouchableOpacity>
+            </View>
+          </Card>
+        );
+      }) : <Empty icon="people-outline" title="ยังไม่มีช่าง" subtitle="กดเพิ่มช่างใหม่ด้านบน" />}
     </View>
   );
 
   // ============================================================
-  // Render: Team / Ranking Tab
+  // TAB: ภาพรวมทีม
   // ============================================================
-  const renderTeamTab = () => (
+  const renderTeam = () => (
     <View>
-      {/* Summary Cards */}
       <View style={{ flexDirection: 'row', gap: 10, marginBottom: 16 }}>
-        <View style={[styles.summaryCard, { backgroundColor: '#DBEAFE' }]}>
-          <Ionicons name="people" size={24} color="#3B82F6" />
-          <Text style={[styles.summaryValue, { color: '#3B82F6' }]}>{workers.length}</Text>
-          <Text style={styles.summaryLabel}>ช่างทั้งหมด</Text>
-        </View>
-        <View style={[styles.summaryCard, { backgroundColor: '#D1FAE5' }]}>
-          <Ionicons name="stats-chart" size={24} color="#10B981" />
-          <Text style={[styles.summaryValue, { color: '#10B981' }]}>
-            {workers.reduce((sum, w) => sum + w.records.length, 0)}
-          </Text>
-          <Text style={styles.summaryLabel}>สถิติทั้งหมด</Text>
-        </View>
-        <View style={[styles.summaryCard, { backgroundColor: '#FEF3C7' }]}>
-          <Ionicons name="trophy" size={24} color="#F59E0B" />
-          <Text style={[styles.summaryValue, { color: '#F59E0B' }]}>
-            {rankedWorkers.length > 0 ? `${rankedWorkers[0].overall}%` : '-'}
-          </Text>
-          <Text style={styles.summaryLabel}>คะแนนสูงสุด</Text>
-        </View>
+        {[
+          { val: workers.length, label: 'ช่างทั้งหมด', color: '#3B82F6', bg: '#DBEAFE' },
+          { val: workers.reduce((s, w) => s + w.records.length, 0), label: 'สถิติทั้งหมด', color: '#10B981', bg: '#D1FAE5' },
+          { val: ranked[0] ? `${ranked[0].score}%` : '-', label: 'คะแนนสูงสุด', color: '#F59E0B', bg: '#FEF3C7' },
+        ].map((d, i) => (
+          <View key={i} style={{ flex: 1, backgroundColor: d.bg, borderRadius: 14, padding: 14, alignItems: 'center', elevation: 2 }}>
+            <Text style={{ fontSize: 24, fontWeight: '800', color: d.color }}>{d.val}</Text>
+            <Text style={{ fontSize: 11, color: C.textSec, marginTop: 2 }}>{d.label}</Text>
+          </View>
+        ))}
       </View>
 
-      {/* Ranking */}
-      <Text style={{ fontSize: 17, fontWeight: '700', color: C.text, marginBottom: 12 }}>
-        จัดอันดับช่าง
-      </Text>
-
-      {rankedWorkers.length > 0 ? (
-        rankedWorkers.map((worker, index) => {
-          const grade = getGrade(worker.overall);
-          const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `#${index + 1}`;
-          const isTop3 = index < 3;
-
-          return (
-            <Card key={worker.id} onPress={() => { setSelectedWorker(worker); setShowDetail(true); }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <View style={[styles.rankBadge, isTop3 && { backgroundColor: grade.bg }]}>
-                  <Text style={{ fontSize: isTop3 ? 20 : 14, fontWeight: '700', color: isTop3 ? grade.color : C.textSecondary }}>
-                    {medal}
-                  </Text>
-                </View>
-                <View style={{ marginLeft: 10, marginRight: 8 }}>
-                  {renderAvatar(worker, 36)}
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 15, fontWeight: '600', color: C.text }}>
-                    {worker.name}
-                  </Text>
-                  <Text style={{ fontSize: 12, color: C.textSecondary, marginTop: 2 }}>
-                    {worker.role} • {worker.records.length} งาน
-                  </Text>
-                </View>
-                <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={{ fontSize: 20, fontWeight: '800', color: grade.color }}>
-                    {worker.overall}
-                  </Text>
-                  <Badge label={`เกรด ${grade.label}`} color={grade.color} bg={grade.bg} />
-                </View>
+      <Text style={{ fontSize: 17, fontWeight: '700', color: C.text, marginBottom: 12 }}>จัดอันดับช่าง</Text>
+      {ranked.length > 0 ? ranked.map((w, i) => {
+        const grade = getGrade(w.score);
+        const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${i + 1}`;
+        return (
+          <Card key={w.id} onPress={() => { setSelectedWorker(w); setShowDetail(true); }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: i < 3 ? grade.bg : '#F3F4F6', alignItems: 'center', justifyContent: 'center' }}>
+                <Text style={{ fontSize: i < 3 ? 18 : 14, fontWeight: '700', color: i < 3 ? grade.color : C.textSec }}>{medal}</Text>
               </View>
-              <View style={{ marginTop: 10 }}>
-                <ProgressBar progress={worker.overall} height={6} color={grade.color} />
+              <View style={{ marginLeft: 10 }}><Avatar worker={w} size={36} /></View>
+              <View style={{ flex: 1, marginLeft: 8 }}>
+                <Text style={{ fontSize: 15, fontWeight: '600', color: C.text }}>{w.name}</Text>
+                <Text style={{ fontSize: 12, color: C.textSec }}>{w.role} • {w.records.length} งาน</Text>
               </View>
-            </Card>
-          );
-        })
-      ) : (
-        <Empty icon="trophy-outline" title="ยังไม่มีข้อมูล" subtitle="เพิ่มช่างและสถิติการทำงานก่อน" />
-      )}
+              <View style={{ alignItems: 'flex-end' }}>
+                <Text style={{ fontSize: 20, fontWeight: '800', color: grade.color }}>{w.score}</Text>
+                <Badge label={`เกรด ${grade.label}`} color={grade.color} bg={grade.bg} />
+              </View>
+            </View>
+            <ProgressBar progress={w.score} height={5} color={grade.color} style={{ marginTop: 10 }} />
+          </Card>
+        );
+      }) : <Empty icon="trophy-outline" title="ยังไม่มีข้อมูล" />}
 
-      {/* Work Type Breakdown */}
+      {/* สรุปตามประเภทงาน */}
       {workers.length > 0 && (
         <>
-          <Text style={{ fontSize: 17, fontWeight: '700', color: C.text, marginTop: 20, marginBottom: 12 }}>
-            สรุปตามประเภทงาน
-          </Text>
-          {WORK_TYPES.map((wt) => {
-            const allRecords = workers.flatMap(w => w.records).filter(r => r.workType === wt.key);
-            if (allRecords.length === 0) return null;
-            const avg = calcAvg(allRecords, 'output');
+          <Text style={{ fontSize: 17, fontWeight: '700', color: C.text, marginTop: 20, marginBottom: 12 }}>สรุปตามประเภทงาน</Text>
+          {WORK_TYPES.map(wt => {
+            // ใช้ r.work_type (ชื่อจาก DB)
+            const recs = workers.flatMap(w => w.records).filter(r => r.work_type === wt.key);
+            if (!recs.length) return null;
+            const avg = calcAvg(recs, 'output');
             return (
               <Card key={wt.key}>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <View style={{
-                    width: 40, height: 40, borderRadius: 10,
-                    backgroundColor: wt.color + '15', alignItems: 'center', justifyContent: 'center',
-                  }}>
+                  <View style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: wt.color + '15', alignItems: 'center', justifyContent: 'center' }}>
                     <Ionicons name={wt.icon} size={20} color={wt.color} />
                   </View>
                   <View style={{ flex: 1, marginLeft: 12 }}>
                     <Text style={{ fontSize: 14, fontWeight: '600', color: C.text }}>{wt.key}</Text>
-                    <Text style={{ fontSize: 12, color: C.textSecondary }}>
-                      {allRecords.length} รายการ • เฉลี่ย {avg}%
-                    </Text>
+                    <Text style={{ fontSize: 12, color: C.textSec }}>{recs.length} รายการ • เฉลี่ย {avg}%</Text>
                   </View>
                   <ProgressBar progress={avg} height={6} color={wt.color} style={{ width: 80 }} />
                 </View>
@@ -508,121 +317,59 @@ export default function WorkerStatsScreen({ navigation }) {
   );
 
   // ============================================================
-  // Modal: Add Worker (ฟอร์มเพิ่มช่างใหม่)
+  // MODAL: เพิ่มช่าง
   // ============================================================
   const renderAddWorkerModal = () => (
     <Modal visible={showAddWorker} animationType="slide" transparent>
-      <View style={styles.modalOverlay}>
-        <View style={[styles.modalContent, { maxHeight: '90%' }]}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>เพิ่มช่างใหม่</Text>
-            <TouchableOpacity onPress={() => setShowAddWorker(false)}>
-              <Ionicons name="close" size={24} color={C.textSecondary} />
-            </TouchableOpacity>
+      <View style={s.overlay}>
+        <View style={[s.modal, { maxHeight: '90%' }]}>
+          <View style={s.modalHead}>
+            <Text style={s.modalTitle}>เพิ่มช่างใหม่</Text>
+            <TouchableOpacity onPress={() => setShowAddWorker(false)}><Ionicons name="close" size={24} color={C.textSec} /></TouchableOpacity>
           </View>
-
           <ScrollView showsVerticalScrollIndicator={false}>
-            {/* ==================== รูปถ่ายช่าง ==================== */}
-            <Text style={styles.fieldLabel}>รูปถ่ายช่าง</Text>
-            <TouchableOpacity onPress={showImagePickerOptions} style={styles.photoUploadArea}>
+            {/* รูปถ่าย */}
+            <Text style={s.label}>รูปถ่ายช่าง</Text>
+            <TouchableOpacity onPress={showImageOptions} style={s.photoArea}>
               {workerForm.avatarUri ? (
                 <View style={{ alignItems: 'center' }}>
-                  <Image
-                    source={{ uri: workerForm.avatarUri }}
-                    style={{ width: 100, height: 100, borderRadius: 50, marginBottom: 8 }}
-                  />
-                  <Text style={{ fontSize: 13, color: C.primary, fontWeight: '600' }}>
-                    แตะเพื่อเปลี่ยนรูป
-                  </Text>
+                  <Image source={{ uri: workerForm.avatarUri }} style={{ width: 100, height: 100, borderRadius: 50, marginBottom: 8 }} />
+                  <Text style={{ fontSize: 13, color: C.primary, fontWeight: '600' }}>แตะเพื่อเปลี่ยนรูป</Text>
                 </View>
               ) : (
                 <View style={{ alignItems: 'center' }}>
-                  <View style={{
-                    width: 80, height: 80, borderRadius: 40,
-                    backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center',
-                    marginBottom: 8,
-                  }}>
+                  <View style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center', marginBottom: 8 }}>
                     <Ionicons name="camera-outline" size={32} color={C.textLight} />
                   </View>
-                  <Text style={{ fontSize: 13, color: C.textSecondary }}>
-                    ถ่ายรูปหรือเลือกจากคลัง
-                  </Text>
-                  <Text style={{ fontSize: 11, color: C.textLight, marginTop: 2 }}>
-                    (ไม่บังคับ — สามารถเพิ่มทีหลังได้)
-                  </Text>
+                  <Text style={{ fontSize: 13, color: C.textSec }}>ถ่ายรูปหรือเลือกจากคลัง</Text>
+                  <Text style={{ fontSize: 11, color: C.textLight, marginTop: 2 }}>(ไม่บังคับ)</Text>
                 </View>
               )}
             </TouchableOpacity>
 
-            {/* ==================== ชื่อช่าง ==================== */}
-            <Input
-              label="ชื่อ-นามสกุล *"
-              value={workerForm.name}
-              onChangeText={v => setWorkerForm(prev => ({ ...prev, name: v }))}
-              placeholder="เช่น สมชาย ใจดี"
-              icon="person-outline"
-            />
+            <Input label="ชื่อ-นามสกุล *" value={workerForm.name} onChangeText={v => setWorkerForm(p => ({ ...p, name: v }))} placeholder="เช่น สมชาย ใจดี" icon="person-outline" />
 
-            {/* ==================== ตำแหน่ง (Picker) ==================== */}
-            <Text style={styles.fieldLabel}>ตำแหน่งงาน *</Text>
+            {/* ตำแหน่ง picker */}
+            <Text style={s.label}>ตำแหน่งงาน *</Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
-              {WORKER_ROLES.map((r) => {
-                const selected = workerForm.role === r.key;
+              {ROLES.map(r => {
+                const sel = workerForm.role === r.key;
                 return (
-                  <TouchableOpacity
-                    key={r.key}
-                    onPress={() => setWorkerForm(prev => ({ ...prev, role: r.key }))}
-                    style={{
-                      flexDirection: 'row', alignItems: 'center', gap: 5,
-                      paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20,
-                      backgroundColor: selected ? r.color : '#F3F4F6',
-                      borderWidth: selected ? 0 : 1, borderColor: C.border,
-                    }}
-                  >
-                    <Ionicons name={r.icon} size={14} color={selected ? '#fff' : r.color} />
-                    <Text style={{
-                      color: selected ? '#fff' : C.textSecondary,
-                      fontWeight: '600', fontSize: 12,
-                    }}>
-                      {r.key}
-                    </Text>
+                  <TouchableOpacity key={r.key} onPress={() => setWorkerForm(p => ({ ...p, role: r.key }))}
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, backgroundColor: sel ? r.color : '#F3F4F6', borderWidth: sel ? 0 : 1, borderColor: C.border }}>
+                    <Ionicons name={r.icon} size={14} color={sel ? '#fff' : r.color} />
+                    <Text style={{ color: sel ? '#fff' : C.textSec, fontWeight: '600', fontSize: 12 }}>{r.key}</Text>
                   </TouchableOpacity>
                 );
               })}
             </View>
-
-            {/* ช่องกรอกเองถ้าเลือก "อื่นๆ" */}
             {workerForm.role === 'อื่นๆ' && (
-              <Input
-                label="ระบุตำแหน่ง"
-                value={workerForm.customRole}
-                onChangeText={v => setWorkerForm(prev => ({ ...prev, customRole: v }))}
-                placeholder="กรอกตำแหน่งที่ต้องการ"
-                icon="create-outline"
-              />
+              <Input label="ระบุตำแหน่ง" value={workerForm.customRole} onChangeText={v => setWorkerForm(p => ({ ...p, customRole: v }))} placeholder="กรอกตำแหน่ง" icon="create-outline" />
             )}
 
-            {/* ==================== อายุ ==================== */}
-            <Input
-              label="อายุ (ปี)"
-              value={workerForm.age}
-              onChangeText={v => setWorkerForm(prev => ({ ...prev, age: v }))}
-              placeholder="เช่น 35"
-              keyboardType="numeric"
-              icon="calendar-outline"
-            />
+            <Input label="อายุ (ปี)" value={workerForm.age} onChangeText={v => setWorkerForm(p => ({ ...p, age: v }))} placeholder="เช่น 35" keyboardType="numeric" icon="calendar-outline" />
+            <Input label="เบอร์โทร (ไม่บังคับ)" value={workerForm.phone} onChangeText={v => setWorkerForm(p => ({ ...p, phone: v }))} placeholder="08x-xxx-xxxx" keyboardType="phone-pad" icon="call-outline" />
 
-            {/* ==================== เบอร์โทร ==================== */}
-            <Input
-              label="เบอร์โทรติดต่อ (ไม่บังคับ)"
-              value={workerForm.phone}
-              onChangeText={v => setWorkerForm(prev => ({ ...prev, phone: v }))}
-              placeholder="08x-xxx-xxxx"
-              keyboardType="phone-pad"
-              icon="call-outline"
-            />
-
-            {/* ==================== Buttons ==================== */}
             <Button title="บันทึกช่าง" onPress={handleAddWorker} loading={saving} icon="checkmark-circle" style={{ marginTop: 8 }} />
             <Button title="ยกเลิก" variant="outline" onPress={() => setShowAddWorker(false)} style={{ marginTop: 8, marginBottom: 20 }} />
           </ScrollView>
@@ -632,59 +379,33 @@ export default function WorkerStatsScreen({ navigation }) {
   );
 
   // ============================================================
-  // Modal: Add Record
+  // MODAL: เพิ่มสถิติ
   // ============================================================
   const renderAddRecordModal = () => (
     <Modal visible={showAddRecord} animationType="slide" transparent>
-      <View style={styles.modalOverlay}>
-        <View style={styles.modalContent}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>
-              เพิ่มสถิติ — {selectedWorker?.name}
-            </Text>
-            <TouchableOpacity onPress={() => setShowAddRecord(false)}>
-              <Ionicons name="close" size={24} color={C.textSecondary} />
-            </TouchableOpacity>
+      <View style={s.overlay}>
+        <View style={s.modal}>
+          <View style={s.modalHead}>
+            <Text style={s.modalTitle}>เพิ่มสถิติ — {selectedWorker?.name}</Text>
+            <TouchableOpacity onPress={() => setShowAddRecord(false)}><Ionicons name="close" size={24} color={C.textSec} /></TouchableOpacity>
           </View>
-
           <ScrollView showsVerticalScrollIndicator={false}>
-            {/* Work Type Picker */}
-            <Text style={styles.fieldLabel}>ประเภทงาน</Text>
+            <Text style={s.label}>ประเภทงาน</Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
-              {WORK_TYPES.map((wt) => {
-                const selected = recordForm.workType === wt.key;
+              {WORK_TYPES.map(wt => {
+                const sel = recordForm.workType === wt.key;
                 return (
-                  <TouchableOpacity
-                    key={wt.key}
-                    onPress={() => setRecordForm(prev => ({ ...prev, workType: wt.key }))}
-                    style={{
-                      flexDirection: 'row', alignItems: 'center', gap: 6,
-                      paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20,
-                      backgroundColor: selected ? wt.color : '#F3F4F6',
-                      borderWidth: selected ? 0 : 1, borderColor: C.border,
-                    }}
-                  >
-                    <Ionicons name={wt.icon} size={14} color={selected ? '#fff' : wt.color} />
-                    <Text style={{ color: selected ? '#fff' : C.textSecondary, fontWeight: '600', fontSize: 12 }}>
-                      {wt.key}
-                    </Text>
+                  <TouchableOpacity key={wt.key} onPress={() => setRecordForm(p => ({ ...p, workType: wt.key }))}
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, backgroundColor: sel ? wt.color : '#F3F4F6', borderWidth: sel ? 0 : 1, borderColor: C.border }}>
+                    <Ionicons name={wt.icon} size={14} color={sel ? '#fff' : wt.color} />
+                    <Text style={{ color: sel ? '#fff' : C.textSec, fontWeight: '600', fontSize: 12 }}>{wt.key}</Text>
                   </TouchableOpacity>
                 );
               })}
             </View>
-
-            <Input label="วันที่" value={recordForm.date}
-              onChangeText={v => setRecordForm(prev => ({ ...prev, date: v }))}
-              placeholder="YYYY-MM-DD (เว้นว่าง = วันนี้)" icon="calendar-outline" />
-
-            <Input label="คะแนนผลผลิต (0-100) *" value={recordForm.output}
-              onChangeText={v => setRecordForm(prev => ({ ...prev, output: v }))}
-              placeholder="เช่น 85" keyboardType="numeric" icon="trending-up-outline" />
-
-            <Input label="คะแนนคุณภาพ (0-100) *" value={recordForm.quality}
-              onChangeText={v => setRecordForm(prev => ({ ...prev, quality: v }))}
-              placeholder="เช่น 90" keyboardType="numeric" icon="star-outline" />
-
+            <Input label="วันที่" value={recordForm.date} onChangeText={v => setRecordForm(p => ({ ...p, date: v }))} placeholder="YYYY-MM-DD (เว้น = วันนี้)" icon="calendar-outline" />
+            <Input label="คะแนนผลผลิต (0-100) *" value={recordForm.output} onChangeText={v => setRecordForm(p => ({ ...p, output: v }))} placeholder="เช่น 85" keyboardType="numeric" icon="trending-up-outline" />
+            <Input label="คะแนนคุณภาพ (0-100) *" value={recordForm.quality} onChangeText={v => setRecordForm(p => ({ ...p, quality: v }))} placeholder="เช่น 90" keyboardType="numeric" icon="star-outline" />
             <Button title="บันทึกสถิติ" onPress={handleAddRecord} loading={saving} icon="checkmark-circle" />
             <Button title="ยกเลิก" variant="outline" onPress={() => setShowAddRecord(false)} style={{ marginTop: 8, marginBottom: 20 }} />
           </ScrollView>
@@ -694,157 +415,100 @@ export default function WorkerStatsScreen({ navigation }) {
   );
 
   // ============================================================
-  // Modal: Worker Detail
+  // MODAL: รายละเอียดช่าง
   // ============================================================
   const renderDetailModal = () => {
     if (!selectedWorker) return null;
+    const avgO = calcAvg(selectedWorker.records, 'output');
+    const avgQ = calcAvg(selectedWorker.records, 'quality');
+    const score = getScore(selectedWorker);
+    const grade = getGrade(score);
 
-    const avgOutput = calcAvg(selectedWorker.records, 'output');
-    const avgQuality = calcAvg(selectedWorker.records, 'quality');
-    const overall = getOverallScore(selectedWorker);
-    const grade = getGrade(overall);
-
-    // Group records by workType
+    // จัดกลุ่มตาม work_type (field จาก DB)
     const byType = {};
     selectedWorker.records.forEach(r => {
-      if (!byType[r.workType]) byType[r.workType] = [];
-      byType[r.workType].push(r);
+      const t = r.work_type || 'อื่นๆ';
+      if (!byType[t]) byType[t] = [];
+      byType[t].push(r);
     });
 
     return (
       <Modal visible={showDetail} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { maxHeight: '90%' }]}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>รายละเอียดช่าง</Text>
-              <TouchableOpacity onPress={() => setShowDetail(false)}>
-                <Ionicons name="close" size={24} color={C.textSecondary} />
-              </TouchableOpacity>
+        <View style={s.overlay}>
+          <View style={[s.modal, { maxHeight: '90%' }]}>
+            <View style={s.modalHead}>
+              <Text style={s.modalTitle}>รายละเอียดช่าง</Text>
+              <TouchableOpacity onPress={() => setShowDetail(false)}><Ionicons name="close" size={24} color={C.textSec} /></TouchableOpacity>
             </View>
-
             <ScrollView showsVerticalScrollIndicator={false}>
-              {/* Profile Header */}
               <View style={{ alignItems: 'center', marginBottom: 20 }}>
-                {renderAvatar(selectedWorker, 80)}
-                <Text style={{ fontSize: 20, fontWeight: '700', color: C.text, marginTop: 10 }}>
-                  {selectedWorker.name}
-                </Text>
-                <Text style={{ fontSize: 14, color: C.textSecondary, marginTop: 2 }}>
-                  {selectedWorker.role || 'ไม่ระบุตำแหน่ง'}
-                  {selectedWorker.age ? ` • ${selectedWorker.age} ปี` : ''}
-                </Text>
+                <Avatar worker={selectedWorker} size={80} />
+                <Text style={{ fontSize: 20, fontWeight: '700', color: C.text, marginTop: 10 }}>{selectedWorker.name}</Text>
+                <Text style={{ fontSize: 14, color: C.textSec }}>{selectedWorker.role}{selectedWorker.age ? ` • ${selectedWorker.age} ปี` : ''}</Text>
                 {selectedWorker.phone ? (
                   <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
                     <Ionicons name="call-outline" size={14} color={C.textLight} />
-                    <Text style={{ fontSize: 13, color: C.textSecondary, marginLeft: 4 }}>
-                      {selectedWorker.phone}
-                    </Text>
+                    <Text style={{ fontSize: 13, color: C.textSec, marginLeft: 4 }}>{selectedWorker.phone}</Text>
                   </View>
                 ) : null}
-                <Badge
-                  label={`เกรด ${grade.label} • คะแนนรวม ${overall}%`}
-                  color={grade.color} bg={grade.bg}
-                  style={{ marginTop: 8 }}
-                />
+                <Badge label={`เกรด ${grade.label} • ${score}%`} color={grade.color} bg={grade.bg} />
               </View>
 
-              {/* Overall Stats */}
               <Card>
-                <Text style={{ fontSize: 14, fontWeight: '600', color: C.text, marginBottom: 12 }}>
-                  สรุปภาพรวม
-                </Text>
-                <View style={{ marginBottom: 10 }}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-                    <Text style={styles.statLabel}>ผลผลิตเฉลี่ย</Text>
-                    <Text style={[styles.statValue, { color: '#3B82F6' }]}>{avgOutput}%</Text>
+                <Text style={{ fontSize: 14, fontWeight: '600', color: C.text, marginBottom: 12 }}>สรุปภาพรวม</Text>
+                {[
+                  { label: 'ผลผลิตเฉลี่ย', val: avgO, color: '#3B82F6' },
+                  { label: 'คุณภาพเฉลี่ย', val: avgQ, color: '#10B981' },
+                  { label: 'คะแนนรวม', val: score, color: grade.color },
+                ].map((d, i) => (
+                  <View key={i} style={{ marginBottom: 8 }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 }}>
+                      <Text style={{ fontSize: 13, color: C.textSec }}>{d.label}</Text>
+                      <Text style={{ fontSize: 13, fontWeight: '700', color: d.color }}>{d.val}%</Text>
+                    </View>
+                    <ProgressBar progress={d.val} height={8} color={d.color} />
                   </View>
-                  <ProgressBar progress={avgOutput} height={10} color="#3B82F6" />
-                </View>
-                <View style={{ marginBottom: 10 }}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-                    <Text style={styles.statLabel}>คุณภาพเฉลี่ย</Text>
-                    <Text style={[styles.statValue, { color: '#10B981' }]}>{avgQuality}%</Text>
-                  </View>
-                  <ProgressBar progress={avgQuality} height={10} color="#10B981" />
-                </View>
-                <View>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-                    <Text style={styles.statLabel}>คะแนนรวม</Text>
-                    <Text style={[styles.statValue, { color: grade.color }]}>{overall}%</Text>
-                  </View>
-                  <ProgressBar progress={overall} height={10} color={grade.color} />
-                </View>
+                ))}
               </Card>
 
-              {/* Records by Type */}
-              {Object.entries(byType).length > 0 && (
+              {Object.keys(byType).length > 0 && (
                 <Card>
-                  <Text style={{ fontSize: 14, fontWeight: '600', color: C.text, marginBottom: 12 }}>
-                    สถิติแยกตามประเภทงาน
-                  </Text>
-                  {Object.entries(byType).map(([type, records]) => {
-                    const wt = WORK_TYPES.find(w => w.key === type) || WORK_TYPES[WORK_TYPES.length - 1];
-                    const typeAvg = calcAvg(records, 'output');
+                  <Text style={{ fontSize: 14, fontWeight: '600', color: C.text, marginBottom: 12 }}>สถิติแยกประเภทงาน</Text>
+                  {Object.entries(byType).map(([type, recs]) => {
+                    const wt = WORK_TYPES.find(w => w.key === type) || { icon: 'ellipsis-horizontal-outline', color: '#6B7280' };
                     return (
-                      <View key={type} style={{
-                        flexDirection: 'row', alignItems: 'center', paddingVertical: 10,
-                        borderBottomWidth: 1, borderBottomColor: C.borderLight,
-                      }}>
+                      <View key={type} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.border }}>
                         <Ionicons name={wt.icon} size={18} color={wt.color} style={{ width: 28 }} />
                         <View style={{ flex: 1 }}>
                           <Text style={{ fontSize: 13, fontWeight: '600', color: C.text }}>{type}</Text>
-                          <Text style={{ fontSize: 11, color: C.textLight }}>{records.length} รายการ</Text>
+                          <Text style={{ fontSize: 11, color: C.textLight }}>{recs.length} รายการ</Text>
                         </View>
-                        <Text style={{ fontSize: 14, fontWeight: '700', color: wt.color }}>{typeAvg}%</Text>
+                        <Text style={{ fontSize: 14, fontWeight: '700', color: wt.color }}>{calcAvg(recs, 'output')}%</Text>
                       </View>
                     );
                   })}
                 </Card>
               )}
 
-              {/* Recent Records */}
               <Card>
-                <Text style={{ fontSize: 14, fontWeight: '600', color: C.text, marginBottom: 12 }}>
-                  ประวัติล่าสุด
-                </Text>
-                {selectedWorker.records.length > 0 ? (
-                  selectedWorker.records.slice(0, 10).map((rec, i) => (
-                    <View key={rec.id || i} style={{
-                      flexDirection: 'row', alignItems: 'center', paddingVertical: 8,
-                      borderBottomWidth: i < Math.min(selectedWorker.records.length - 1, 9) ? 1 : 0,
-                      borderBottomColor: C.borderLight,
-                    }}>
-                      <Text style={{ fontSize: 12, color: C.textLight, width: 80 }}>{rec.date || '-'}</Text>
-                      <Text style={{ flex: 1, fontSize: 13, color: C.text }}>{rec.workType}</Text>
-                      <Badge label={`${rec.output}`} color="#3B82F6" bg="#DBEAFE" icon="trending-up-outline" style={{ marginRight: 6 }} />
-                      <Badge label={`${rec.quality}`} color="#10B981" bg="#D1FAE5" icon="star-outline" />
-                    </View>
-                  ))
-                ) : (
-                  <Text style={{ fontSize: 13, color: C.textLight, textAlign: 'center', paddingVertical: 16 }}>
-                    ยังไม่มีข้อมูล
-                  </Text>
-                )}
+                <Text style={{ fontSize: 14, fontWeight: '600', color: C.text, marginBottom: 12 }}>ประวัติล่าสุด</Text>
+                {selectedWorker.records.length > 0 ? selectedWorker.records.slice(0, 10).map((rec, i) => (
+                  <View key={rec.id || i} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: i < 9 ? 1 : 0, borderBottomColor: C.border }}>
+                    <Text style={{ fontSize: 12, color: C.textLight, width: 80 }}>{rec.date || '-'}</Text>
+                    <Text style={{ flex: 1, fontSize: 13, color: C.text }}>{rec.work_type}</Text>
+                    <Badge label={`${rec.output}`} color="#3B82F6" bg="#DBEAFE" />
+                    <View style={{ width: 6 }} />
+                    <Badge label={`${rec.quality}`} color="#10B981" bg="#D1FAE5" />
+                  </View>
+                )) : <Text style={{ fontSize: 13, color: C.textLight, textAlign: 'center', paddingVertical: 16 }}>ยังไม่มีข้อมูล</Text>}
               </Card>
 
-              {/* Actions */}
-              <Button
-                title="เพิ่มสถิติให้ช่างคนนี้"
-                icon="add-circle-outline"
-                onPress={() => {
-                  setShowDetail(false);
-                  setRecordForm({ workType: 'ผูกเหล็ก', date: '', output: '', quality: '' });
-                  setTimeout(() => setShowAddRecord(true), 300);
-                }}
-                style={{ marginTop: 4 }}
-              />
-              <Button
-                title="ลบช่างคนนี้"
-                variant="danger"
-                icon="trash-outline"
-                onPress={() => handleDeleteWorker(selectedWorker)}
-                style={{ marginTop: 8, marginBottom: 20 }}
-              />
+              <Button title="เพิ่มสถิติ" icon="add-circle-outline" onPress={() => {
+                setShowDetail(false);
+                setRecordForm({ workType: 'ผูกเหล็ก', date: '', output: '', quality: '' });
+                setTimeout(() => setShowAddRecord(true), 300);
+              }} style={{ marginTop: 4 }} />
+              <Button title="ลบช่าง" variant="danger" icon="trash-outline" onPress={() => handleDelete(selectedWorker)} style={{ marginTop: 8, marginBottom: 20 }} />
             </ScrollView>
           </View>
         </View>
@@ -853,16 +517,10 @@ export default function WorkerStatsScreen({ navigation }) {
   };
 
   // ============================================================
-  // Main Render
+  // MAIN RENDER
   // ============================================================
-  const TABS = [
-    { key: 'individual', label: 'รายบุคคล', icon: 'person-outline' },
-    { key: 'team', label: 'ภาพรวมทีม', icon: 'people-outline' },
-  ];
-
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
-      {/* Header */}
       <View style={{ backgroundColor: C.primary, paddingTop: 50, paddingBottom: 16, paddingHorizontal: 20 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           {navigation?.openDrawer && (
@@ -881,39 +539,25 @@ export default function WorkerStatsScreen({ navigation }) {
           </TouchableOpacity>
         </View>
 
-        {/* Tab Switcher */}
         <View style={{ flexDirection: 'row', marginTop: 16, gap: 8 }}>
-          {TABS.map((t) => {
-            const active = activeTab === t.key;
+          {[{ key: 'individual', label: 'รายบุคคล', icon: 'person-outline' }, { key: 'team', label: 'ภาพรวมทีม', icon: 'people-outline' }].map(t => {
+            const act = activeTab === t.key;
             return (
-              <TouchableOpacity
-                key={t.key}
-                onPress={() => setActiveTab(t.key)}
-                style={{
-                  flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-                  gap: 6, paddingVertical: 10, borderRadius: 10,
-                  backgroundColor: active ? '#fff' : 'rgba(255,255,255,0.1)',
-                }}
-              >
-                <Ionicons name={t.icon} size={16} color={active ? C.primary : '#fff'} />
-                <Text style={{ fontSize: 14, fontWeight: '600', color: active ? C.primary : '#fff' }}>
-                  {t.label}
-                </Text>
+              <TouchableOpacity key={t.key} onPress={() => setActiveTab(t.key)}
+                style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: 10, backgroundColor: act ? '#fff' : 'rgba(255,255,255,0.1)' }}>
+                <Ionicons name={t.icon} size={16} color={act ? C.primary : '#fff'} />
+                <Text style={{ fontSize: 14, fontWeight: '600', color: act ? C.primary : '#fff' }}>{t.label}</Text>
               </TouchableOpacity>
             );
           })}
         </View>
       </View>
 
-      {/* Content */}
-      <ScrollView
-        contentContainerStyle={{ padding: 16, paddingBottom: 30 }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-      >
-        {activeTab === 'individual' ? renderIndividualTab() : renderTeamTab()}
+      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 30 }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await loadData(); setRefreshing(false); }} />}>
+        {activeTab === 'individual' ? renderIndividual() : renderTeam()}
       </ScrollView>
 
-      {/* Modals */}
       {renderAddWorkerModal()}
       {renderAddRecordModal()}
       {renderDetailModal()}
@@ -924,46 +568,11 @@ export default function WorkerStatsScreen({ navigation }) {
 // ============================================================
 // Styles
 // ============================================================
-const styles = StyleSheet.create({
-  avatarCircle: {
-    width: 48, height: 48, borderRadius: 24,
-    backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center',
-  },
-  statLabel: { fontSize: 13, color: C.textSecondary },
-  statValue: { fontSize: 13, fontWeight: '700', color: C.text },
-  addRecordBtn: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8,
-    backgroundColor: C.primary + '10',
-  },
-  summaryCard: {
-    flex: 1, borderRadius: 14, padding: 14, alignItems: 'center', ...{ shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 2, elevation: 2 },
-  },
-  summaryValue: { fontSize: 24, fontWeight: '800', marginTop: 6 },
-  summaryLabel: { fontSize: 11, color: C.textSecondary, marginTop: 2 },
-  rankBadge: {
-    width: 44, height: 44, borderRadius: 22,
-    backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center',
-  },
-  fieldLabel: {
-    fontSize: 14, fontWeight: '600', color: C.text, marginBottom: 8,
-  },
-  photoUploadArea: {
-    alignItems: 'center', paddingVertical: 20, marginBottom: 16,
-    borderWidth: 2, borderStyle: 'dashed', borderColor: C.border, borderRadius: 16,
-    backgroundColor: '#FAFAFA',
-  },
-  modalOverlay: {
-    flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end',
-  },
-  modalContent: {
-    backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24,
-    paddingHorizontal: 20, paddingTop: 20, paddingBottom: 34, maxHeight: '85%',
-  },
-  modalHeader: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20,
-  },
-  modalTitle: {
-    fontSize: 18, fontWeight: '700', color: C.text, flex: 1,
-  },
+const s = StyleSheet.create({
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  modal: { backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 20, paddingTop: 20, paddingBottom: 34, maxHeight: '85%' },
+  modalHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  modalTitle: { fontSize: 18, fontWeight: '700', color: C.text, flex: 1 },
+  label: { fontSize: 14, fontWeight: '600', color: C.text, marginBottom: 8 },
+  photoArea: { alignItems: 'center', paddingVertical: 20, marginBottom: 16, borderWidth: 2, borderStyle: 'dashed', borderColor: C.border, borderRadius: 16, backgroundColor: '#FAFAFA' },
 });
