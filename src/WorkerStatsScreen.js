@@ -1,8 +1,4 @@
 // src/WorkerStatsScreen.js
-// ============================================================
-// หน้าสถิติช่าง (เพิ่ม Picker เลื่อนได้, สัญชาติพิมพ์เอง, อายุงาน)
-// ============================================================
-
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
@@ -18,6 +14,7 @@ import { getWorkersWithRecords, insertWorker, insertWorkerRecord, deleteWorker }
 const ROLES = ['ช่างไม้', 'ช่างก่อ', 'ช่างฉาบ', 'ช่างเหล็ก/ผูกเหล็ก', 'ช่างปูน/เทปูน', 'ช่างไฟฟ้า', 'ช่างประปา', 'ช่างแอร์', 'ช่างฝ้าเพดาน', 'ช่างกระเบื้อง', 'ช่างทาสี', 'ช่างเชื่อม', 'คนงานทั่วไป', 'อื่นๆ'];
 const GENDERS = ['ชาย', 'หญิง'];
 const EMPLOYMENT_STATUSES = ['พนักงานประจำ', 'พนักงานรายวัน', 'ผู้รับเหมาช่วง'];
+const OT_HOURS_OPTIONS = ['0', '1', '1.5', '2', '2.5', '3', '4', '5', '6', '7', '8']; // 🌟 ตัวเลือก OT
 
 const WORK_TYPES = [
   { key: 'โครงสร้าง คสล.', icon: 'business-outline', color: '#3B82F6', ref: 'มาตรฐาน 27 ตร.ม./วัน' },
@@ -61,7 +58,6 @@ export default function WorkerStatsScreen({ navigation }) {
   const [showDetail, setShowDetail] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
 
-  // 🌟 Picker State
   const [pickerConfig, setPickerConfig] = useState({ visible: false, title: '', options: [], field: '', isMulti: false });
 
   const [workerForm, setWorkerForm] = useState({ 
@@ -69,7 +65,8 @@ export default function WorkerStatsScreen({ navigation }) {
     nationality: '', gender: 'ชาย', dailyWage: '', experienceYears: '', employmentStatus: 'พนักงานรายวัน'
   });
   
-  const [recordForm, setRecordForm] = useState({ workType: 'ผูกเหล็ก', date: new Date(), output: '', quality: '' });
+  // 🌟 เพิ่ม State รับค่า OT
+  const [recordForm, setRecordForm] = useState({ workType: 'ผูกเหล็ก', date: new Date(), output: '', quality: '', otHours: '0' });
   const [saving, setSaving] = useState(false);
 
   const loadData = async () => {
@@ -78,12 +75,18 @@ export default function WorkerStatsScreen({ navigation }) {
   };
   useFocusEffect(useCallback(() => { loadData(); }, []));
 
-  // 🌟 ฟังก์ชันจัดการ Custom Picker
   const openPicker = (title, options, field, isMulti = false) => {
     setPickerConfig({ visible: true, title, options, field, isMulti });
   };
 
   const handleSelectPickerOption = (opt) => {
+    // 🌟 แยกเช็คว่ากำลังกด Picker ของ RecordForm หรือ WorkerForm
+    if (pickerConfig.field === 'otHours') {
+      setRecordForm(p => ({ ...p, otHours: opt }));
+      setPickerConfig(p => ({ ...p, visible: false }));
+      return;
+    }
+
     if (pickerConfig.isMulti) {
       setWorkerForm(p => {
         const currentArr = p[pickerConfig.field] || [];
@@ -93,7 +96,7 @@ export default function WorkerStatsScreen({ navigation }) {
       });
     } else {
       setWorkerForm(p => ({ ...p, [pickerConfig.field]: opt }));
-      setPickerConfig(p => ({ ...p, visible: false })); // ปิด Picker เมื่อเลือกเสร็จ (แบบ Single)
+      setPickerConfig(p => ({ ...p, visible: false }));
     }
   };
 
@@ -115,7 +118,7 @@ export default function WorkerStatsScreen({ navigation }) {
   const handleAddWorker = async () => {
     if (!workerForm.name.trim()) return Alert.alert('แจ้งเตือน', 'กรุณากรอกชื่อพนักงาน');
     if (!workerForm.roles || workerForm.roles.length === 0) return Alert.alert('แจ้งเตือน', 'กรุณาเลือกตำแหน่งงานอย่างน้อย 1 ตำแหน่ง');
-    if (!workerForm.nationality.trim()) return Alert.alert('แจ้งเตือน', 'กรุณาระบุสัญชาติ (บังคับ)'); // 🌟 บังคับกรอกสัญชาติ
+    if (!workerForm.nationality.trim()) return Alert.alert('แจ้งเตือน', 'กรุณาระบุสัญชาติ (บังคับ)');
     
     let finalRole = workerForm.roles.join(', ');
     if (workerForm.roles.includes('อื่นๆ') && workerForm.customRole.trim()) {
@@ -150,11 +153,17 @@ export default function WorkerStatsScreen({ navigation }) {
     const quality = parseFloat(recordForm.quality);
     if (isNaN(output) || isNaN(quality)) return Alert.alert('แจ้งเตือน', 'กรุณากรอกตัวเลข');
     if (output < 0 || quality < 0 || quality > 100) return Alert.alert('แจ้งเตือน', 'ตรวจสอบตัวเลข (คุณภาพ 0-100)');
+    
+    // 🌟 คำนวณ OT สำหรับส่งเข้า DB
+    const otHrs = parseFloat(recordForm.otHours) || 0;
+    const workerWage = parseFloat(selectedWorker.daily_wage) || 0;
+    const otAmount = (workerWage / 8) * 1.5 * otHrs;
+
     setSaving(true);
     try {
       const formattedDate = new Date(recordForm.date.getTime() - (recordForm.date.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
-      await insertWorkerRecord(selectedWorker.id, recordForm.workType, formattedDate, output, quality);
-      setRecordForm({ workType: 'ผูกเหล็ก', date: new Date(), output: '', quality: '' });
+      await insertWorkerRecord(selectedWorker.id, recordForm.workType, formattedDate, output, quality, otHrs, otAmount);
+      setRecordForm({ workType: 'ผูกเหล็ก', date: new Date(), output: '', quality: '', otHours: '0' });
       setShowAddRecord(false);
       await loadData();
       Alert.alert('สำเร็จ', `บันทึกสถิติเรียบร้อย`);
@@ -184,9 +193,6 @@ export default function WorkerStatsScreen({ navigation }) {
 
   const ranked = [...workers].map(w => ({ ...w, score: getScore(w) })).sort((a, b) => b.score - a.score);
 
-  // ============================================================
-  // CUSTOM PICKER MODAL (🌟 ตัวใหม่ที่เป็นแบบเลื่อนได้)
-  // ============================================================
   const renderCustomPicker = () => (
     <Modal visible={pickerConfig.visible} transparent animationType="fade">
       <View style={s.pickerOverlay}>
@@ -194,13 +200,15 @@ export default function WorkerStatsScreen({ navigation }) {
           <Text style={s.modalTitle}>{pickerConfig.title}</Text>
           <ScrollView style={{ maxHeight: 300, width: '100%', marginVertical: 10 }}>
             {pickerConfig.options.map(opt => {
-              const isSelected = pickerConfig.isMulti 
-                ? (workerForm[pickerConfig.field] || []).includes(opt) 
-                : workerForm[pickerConfig.field] === opt;
+              const isSelected = pickerConfig.field === 'otHours' 
+                ? recordForm.otHours === opt 
+                : (pickerConfig.isMulti ? (workerForm[pickerConfig.field] || []).includes(opt) : workerForm[pickerConfig.field] === opt);
               
               return (
                 <TouchableOpacity key={opt} onPress={() => handleSelectPickerOption(opt)} style={s.pickerItem}>
-                  <Text style={{ fontSize: 16, color: isSelected ? C.primary : C.text, fontWeight: isSelected ? '700' : '400' }}>{opt}</Text>
+                  <Text style={{ fontSize: 16, color: isSelected ? C.primary : C.text, fontWeight: isSelected ? '700' : '400' }}>
+                    {opt} {pickerConfig.field === 'otHours' ? 'ชั่วโมง' : ''}
+                  </Text>
                   {isSelected && <Ionicons name="checkmark-circle" size={20} color={C.primary} />}
                 </TouchableOpacity>
               );
@@ -212,9 +220,6 @@ export default function WorkerStatsScreen({ navigation }) {
     </Modal>
   );
 
-  // ============================================================
-  // MODAL: เพิ่มช่าง (🌟 อัปเกรดฟอร์ม)
-  // ============================================================
   const renderAddWorkerModal = () => (
     <Modal visible={showAddWorker} animationType="slide" transparent>
       <View style={s.overlay}>
@@ -227,7 +232,6 @@ export default function WorkerStatsScreen({ navigation }) {
             
             <Input label="ชื่อ-นามสกุล *" value={workerForm.name} onChangeText={v => setWorkerForm(p => ({ ...p, name: v }))} placeholder="เช่น สมชาย ใจดี" icon="person-outline" />
 
-            {/* 🌟 Picker ตำแหน่งงาน (เลือกได้หลายอัน) */}
             <Text style={s.label}>ตำแหน่งงาน (เลือกได้มากกว่า 1) *</Text>
             <TouchableOpacity style={s.dropdownBtn} onPress={() => openPicker('เลือกตำแหน่งงาน', ROLES, 'roles', true)}>
               <Text style={s.dropdownTxt}>{workerForm.roles.length > 0 ? workerForm.roles.join(', ') : 'กดเพื่อเลือกตำแหน่ง'}</Text>
@@ -237,11 +241,9 @@ export default function WorkerStatsScreen({ navigation }) {
               <Input label="ระบุตำแหน่ง" value={workerForm.customRole} onChangeText={v => setWorkerForm(p => ({ ...p, customRole: v }))} placeholder="กรอกตำแหน่ง" icon="create-outline" />
             )}
 
-            {/* 🌟 สัญชาติ (กรอกเอง + บังคับ) */}
             <Input label="สัญชาติ *" value={workerForm.nationality} onChangeText={v => setWorkerForm(p => ({ ...p, nationality: v }))} placeholder="เช่น ไทย, เมียนมา" icon="flag-outline" />
 
             <View style={{ flexDirection: 'row', gap: 10 }}>
-              {/* 🌟 Picker เพศ */}
               <View style={{ flex: 1 }}>
                 <Text style={s.label}>เพศ</Text>
                 <TouchableOpacity style={s.dropdownBtn} onPress={() => openPicker('เลือกเพศ', GENDERS, 'gender')}>
@@ -249,7 +251,6 @@ export default function WorkerStatsScreen({ navigation }) {
                   <Ionicons name="chevron-down" size={18} color={C.textSec} />
                 </TouchableOpacity>
               </View>
-              {/* 🌟 Picker สถานะการจ้าง */}
               <View style={{ flex: 1 }}>
                 <Text style={s.label}>สถานะการจ้าง</Text>
                 <TouchableOpacity style={s.dropdownBtn} onPress={() => openPicker('สถานะการจ้าง', EMPLOYMENT_STATUSES, 'employmentStatus')}>
@@ -277,11 +278,14 @@ export default function WorkerStatsScreen({ navigation }) {
     </Modal>
   );
 
-  // ============================================================
-  // MODAL: เพิ่มสถิติ (ใส่ DatePicker และคำแนะนำมาตรฐาน)
-  // ============================================================
   const renderAddRecordModal = () => {
     const activeWork = WORK_TYPES.find(w => w.key === recordForm.workType) || WORK_TYPES[0];
+    
+    // 🌟 คำนวณ UI เพื่อโชว์ให้ผู้ใช้เห็นทันทีตอนเลือก Picker
+    const workerWage = parseFloat(selectedWorker?.daily_wage) || 0;
+    const otHrs = parseFloat(recordForm.otHours) || 0;
+    const otPay = (workerWage / 8) * 1.5 * otHrs;
+    const totalPay = workerWage + otPay;
 
     return (
       <Modal visible={showAddRecord} animationType="slide" transparent>
@@ -305,14 +309,6 @@ export default function WorkerStatsScreen({ navigation }) {
                 })}
               </View>
 
-              {activeWork.ref ? (
-                <View style={{ backgroundColor: '#E0F2FE', padding: 10, borderRadius: 8, marginBottom: 16, flexDirection: 'row', alignItems: 'center' }}>
-                  <Ionicons name="information-circle" size={16} color="#0284C7" />
-                  <Text style={{ fontSize: 12, color: '#0284C7', marginLeft: 6 }}>อ้างอิง: {activeWork.ref}</Text>
-                </View>
-              ) : null}
-
-              {/* ปฏิทิน DatePicker */}
               <Text style={s.label}>วันที่ปฏิบัติงาน</Text>
               <TouchableOpacity onPress={() => setShowDatePicker(true)} style={s.dateBtn}>
                 <Ionicons name="calendar-outline" size={18} color={C.textLight} style={{ marginRight: 10 }} />
@@ -334,6 +330,34 @@ export default function WorkerStatsScreen({ navigation }) {
               <Input label="ปริมาณผลผลิตที่ได้ *" value={recordForm.output} onChangeText={v => setRecordForm(p => ({ ...p, output: v }))} placeholder="เช่น 20" keyboardType="numeric" icon="trending-up-outline" />
               <Input label="คะแนนคุณภาพ (0-100) *" value={recordForm.quality} onChangeText={v => setRecordForm(p => ({ ...p, quality: v }))} placeholder="เช่น 90" keyboardType="numeric" icon="star-outline" />
               
+              {/* 🌟 ระบบให้เลือกชั่วโมง OT */}
+              <Text style={s.label}>จำนวนชั่วโมง OT (ทำล่วงเวลา)</Text>
+              <TouchableOpacity style={s.dropdownBtn} onPress={() => openPicker('เลือกชั่วโมง OT', OT_HOURS_OPTIONS, 'otHours')}>
+                <Text style={s.dropdownTxt}>{recordForm.otHours} ชั่วโมง</Text>
+                <Ionicons name="chevron-down" size={18} color={C.textSec} />
+              </TouchableOpacity>
+
+              {/* 🌟 กล่องโชว์เงิน 2 ช่อง */}
+              {workerWage > 0 ? (
+                <View style={{ backgroundColor: '#FFF7ED', padding: 14, borderRadius: 10, marginBottom: 20, borderWidth: 1, borderColor: '#FED7AA' }}>
+                  <Text style={{ fontSize: 12, color: '#C2410C', marginBottom: 6 }}>ฐานค่าแรง: {workerWage} บ./วัน ({(workerWage/8).toFixed(1)} บ./ชม.)</Text>
+                  
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8, alignItems: 'center' }}>
+                    <Text style={{ fontSize: 14, color: '#EA580C', fontWeight: '600' }}>ค่า OT สุทธิ (ยังไม่รวมค่าแรง)</Text>
+                    <Text style={{ fontSize: 16, color: '#EA580C', fontWeight: '800' }}>+ {otPay.toFixed(2)} ฿</Text>
+                  </View>
+                  
+                  <View style={{ height: 1, backgroundColor: '#FDBA74', marginVertical: 6 }} />
+                  
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text style={{ fontSize: 15, color: '#9A3412', fontWeight: '700' }}>OT รวมค่าแรงทั้งหมด</Text>
+                    <Text style={{ fontSize: 20, color: '#9A3412', fontWeight: '900' }}>{totalPay.toFixed(2)} ฿</Text>
+                  </View>
+                </View>
+              ) : (
+                 <Text style={{ fontSize: 12, color: '#EF4444', marginBottom: 20 }}>* ไม่สามารถคำนวณ OT ได้ (ช่างไม่มีข้อมูลค่าแรง)</Text>
+              )}
+
               <Button title="บันทึกสถิติ" onPress={handleAddRecord} loading={saving} icon="checkmark-circle" />
               <Button title="ยกเลิก" variant="outline" onPress={() => setShowAddRecord(false)} style={{ marginTop: 8, marginBottom: 40 }} />
             </ScrollView>
@@ -343,9 +367,6 @@ export default function WorkerStatsScreen({ navigation }) {
     );
   };
 
-  // ============================================================
-  // MODAL: รายละเอียดช่าง
-  // ============================================================
   const renderDetailModal = () => {
     if (!selectedWorker) return null;
     const avgO = calcAvg(selectedWorker.records, 'output');
@@ -384,7 +405,7 @@ export default function WorkerStatsScreen({ navigation }) {
 
               <Button title="เพิ่มสถิติ" icon="add-circle-outline" onPress={() => {
                 setShowDetail(false);
-                setRecordForm({ workType: 'ผูกเหล็ก', date: new Date(), output: '', quality: '' });
+                setRecordForm({ workType: 'ผูกเหล็ก', date: new Date(), output: '', quality: '', otHours: '0' });
                 setTimeout(() => setShowAddRecord(true), 300);
               }} style={{ marginTop: 4 }} />
               <Button title="ลบข้อมูล" variant="danger" icon="trash-outline" onPress={() => handleDelete(selectedWorker)} style={{ marginTop: 8, marginBottom: 20 }} />
@@ -395,9 +416,6 @@ export default function WorkerStatsScreen({ navigation }) {
     );
   };
 
-  // ============================================================
-  // MAIN RENDER
-  // ============================================================
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <View style={{ backgroundColor: C.primary, paddingTop: 50, paddingBottom: 16, paddingHorizontal: 20 }}>
@@ -467,7 +485,7 @@ export default function WorkerStatsScreen({ navigation }) {
                   </View>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 }}>
                     <Text style={{ fontSize: 11, color: C.textLight }}>สถิติ {w.records.length} รายการ</Text>
-                    <TouchableOpacity onPress={() => { setSelectedWorker(w); setRecordForm({ workType: 'ผูกเหล็ก', date: new Date(), output: '', quality: '' }); setShowAddRecord(true); }}
+                    <TouchableOpacity onPress={() => { setSelectedWorker(w); setRecordForm({ workType: 'ผูกเหล็ก', date: new Date(), output: '', quality: '', otHours: '0' }); setShowAddRecord(true); }}
                       style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: C.primary + '10', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8 }}>
                       <Ionicons name="add-circle-outline" size={14} color={C.primary} />
                       <Text style={{ fontSize: 11, color: C.primary, fontWeight: '600', marginLeft: 4 }}>เพิ่มสถิติ</Text>
