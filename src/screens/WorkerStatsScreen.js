@@ -1,19 +1,57 @@
 // src/screens/WorkerStatsScreen.js
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Alert, Modal, RefreshControl, Dimensions,
+  Alert, Modal, RefreshControl, Image, Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
+import * as ImagePicker from 'expo-image-picker';
 import { COLORS, SHADOWS } from '../constants';
 import { Card, Badge, ProgressBar, Button, FormInput, EmptyState } from '../components';
 import {
-  getWorkersWithRecords, insertWorker, insertWorkerRecord,
+  getWorkersWithRecords, insertWorker, insertWorkerRecord, deleteWorker,
 } from '../db/workerRepo';
 
-const { width: SCREEN_W } = Dimensions.get('window');
+// ============================================================
+// ตำแหน่งช่างในไซต์ก่อสร้างจริง
+// ============================================================
+const WORKER_ROLES = [
+  { key: 'ช่างไม้', icon: 'hammer-outline', color: '#8B4513' },
+  { key: 'ช่างก่อ', icon: 'grid-outline', color: '#F59E0B' },
+  { key: 'ช่างฉาบ', icon: 'layers-outline', color: '#A3A3A3' },
+  { key: 'ช่างเหล็ก/ผูกเหล็ก', icon: 'construct-outline', color: '#3B82F6' },
+  { key: 'ช่างปูน/เทปูน', icon: 'cube-outline', color: '#8B5CF6' },
+  { key: 'ช่างไฟฟ้า', icon: 'flash-outline', color: '#F97316' },
+  { key: 'ช่างประปา', icon: 'water-outline', color: '#06B6D4' },
+  { key: 'ช่างแอร์', icon: 'snow-outline', color: '#38BDF8' },
+  { key: 'ช่างฝ้าเพดาน', icon: 'resize-outline', color: '#A855F7' },
+  { key: 'ช่างกระเบื้อง', icon: 'apps-outline', color: '#EC4899' },
+  { key: 'ช่างทาสี', icon: 'color-palette-outline', color: '#10B981' },
+  { key: 'ช่างเชื่อม', icon: 'flame-outline', color: '#EF4444' },
+  { key: 'ช่างกระจก/อลูมิเนียม', icon: 'browsers-outline', color: '#64748B' },
+  { key: 'ช่างหลังคา', icon: 'home-outline', color: '#B45309' },
+  { key: 'ช่างสำรวจ', icon: 'navigate-outline', color: '#7C3AED' },
+  { key: 'คนงานทั่วไป', icon: 'body-outline', color: '#6B7280' },
+  { key: 'ผู้ควบคุมเครื่องจักร', icon: 'settings-outline', color: '#475569' },
+  { key: 'อื่นๆ', icon: 'ellipsis-horizontal-circle-outline', color: '#9CA3AF' },
+];
+
+const WORK_TYPES = [
+  { key: 'ผูกเหล็ก', icon: 'construct-outline', color: '#3B82F6' },
+  { key: 'เทปูน', icon: 'cube-outline', color: '#8B5CF6' },
+  { key: 'ก่ออิฐ', icon: 'grid-outline', color: '#F59E0B' },
+  { key: 'ฉาบปูน', icon: 'layers-outline', color: '#10B981' },
+  { key: 'งานไม้', icon: 'hammer-outline', color: '#EC4899' },
+  { key: 'งานไฟฟ้า', icon: 'flash-outline', color: '#F97316' },
+  { key: 'งานประปา', icon: 'water-outline', color: '#06B6D4' },
+  { key: 'งานทาสี', icon: 'color-palette-outline', color: '#10B981' },
+  { key: 'งานกระเบื้อง', icon: 'apps-outline', color: '#EC4899' },
+  { key: 'งานฝ้า', icon: 'resize-outline', color: '#A855F7' },
+  { key: 'งานเชื่อม', icon: 'flame-outline', color: '#EF4444' },
+  { key: 'อื่นๆ', icon: 'ellipsis-horizontal-outline', color: '#6B7280' },
+];
 
 // ============================================================
 // Helper Functions
@@ -38,19 +76,6 @@ function getOverallScore(worker) {
   return Math.round((avgOutput + avgQuality) / 2);
 }
 
-const WORK_TYPES = [
-  { key: 'ผูกเหล็ก', icon: 'construct-outline', color: '#3B82F6' },
-  { key: 'เทปูน', icon: 'cube-outline', color: '#8B5CF6' },
-  { key: 'ก่ออิฐ', icon: 'grid-outline', color: '#F59E0B' },
-  { key: 'ฉาบปูน', icon: 'layers-outline', color: '#10B981' },
-  { key: 'งานไม้', icon: 'hammer-outline', color: '#EC4899' },
-  { key: 'งานไฟฟ้า', icon: 'flash-outline', color: '#F97316' },
-  { key: 'งานประปา', icon: 'water-outline', color: '#06B6D4' },
-  { key: 'อื่นๆ', icon: 'ellipsis-horizontal-outline', color: '#6B7280' },
-];
-
-const AVATARS = ['👷', '👷‍♂️', '👨‍🔧', '👨‍🏭', '🧑‍🔧', '🏗️', '⚙️', '🔨'];
-
 // ============================================================
 // Main Component
 // ============================================================
@@ -66,7 +91,9 @@ export default function WorkerStatsScreen({ navigation }) {
   const [showDetail, setShowDetail] = useState(false);
 
   // Forms
-  const [workerForm, setWorkerForm] = useState({ name: '', role: '', avatar: '👷' });
+  const [workerForm, setWorkerForm] = useState({
+    name: '', role: '', customRole: '', age: '', phone: '', avatarUri: '',
+  });
   const [recordForm, setRecordForm] = useState({
     workType: 'ผูกเหล็ก', date: '', output: '', quality: '',
   });
@@ -93,6 +120,70 @@ export default function WorkerStatsScreen({ navigation }) {
   };
 
   // ============================================================
+  // Image Picker — ขอสิทธิ์กล้อง/คลังรูป
+  // ============================================================
+  const pickImageFromGallery = async () => {
+    // ขอ permission คลังรูป
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert(
+        'ต้องการสิทธิ์เข้าถึงคลังรูป',
+        'กรุณาเปิดสิทธิ์ในการตั้งค่าเพื่อเลือกรูปภาพ',
+        [
+          { text: 'ยกเลิก', style: 'cancel' },
+          { text: 'เปิดตั้งค่า', onPress: () => Linking.openSettings() },
+        ]
+      );
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.7,
+    });
+
+    if (!result.canceled && result.assets?.[0]?.uri) {
+      setWorkerForm(prev => ({ ...prev, avatarUri: result.assets[0].uri }));
+    }
+  };
+
+  const takePhotoFromCamera = async () => {
+    // ขอ permission กล้อง
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert(
+        'ต้องการสิทธิ์เข้าถึงกล้อง',
+        'กรุณาเปิดสิทธิ์กล้องในการตั้งค่าเพื่อถ่ายรูป',
+        [
+          { text: 'ยกเลิก', style: 'cancel' },
+          { text: 'เปิดตั้งค่า', onPress: () => Linking.openSettings() },
+        ]
+      );
+      return;
+    }
+
+    const result = await ImagePicker.launchCameraAsync({
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.7,
+    });
+
+    if (!result.canceled && result.assets?.[0]?.uri) {
+      setWorkerForm(prev => ({ ...prev, avatarUri: result.assets[0].uri }));
+    }
+  };
+
+  const showImagePickerOptions = () => {
+    Alert.alert('เลือกรูปภาพ', 'ต้องการเพิ่มรูปช่างอย่างไร?', [
+      { text: 'ถ่ายรูป', onPress: takePhotoFromCamera },
+      { text: 'เลือกจากคลังรูป', onPress: pickImageFromGallery },
+      { text: 'ยกเลิก', style: 'cancel' },
+    ]);
+  };
+
+  // ============================================================
   // Add Worker
   // ============================================================
   const handleAddWorker = async () => {
@@ -100,14 +191,32 @@ export default function WorkerStatsScreen({ navigation }) {
       Alert.alert('แจ้งเตือน', 'กรุณากรอกชื่อช่าง');
       return;
     }
+    if (!workerForm.role) {
+      Alert.alert('แจ้งเตือน', 'กรุณาเลือกตำแหน่งงาน');
+      return;
+    }
+
+    const finalRole = workerForm.role === 'อื่นๆ'
+      ? (workerForm.customRole.trim() || 'อื่นๆ')
+      : workerForm.role;
+
+    const age = parseInt(workerForm.age);
+    if (workerForm.age && (isNaN(age) || age < 15 || age > 80)) {
+      Alert.alert('แจ้งเตือน', 'อายุต้องอยู่ระหว่าง 15 - 80 ปี');
+      return;
+    }
+
     setSaving(true);
     try {
-      await insertWorker(
-        workerForm.name.trim(),
-        workerForm.role.trim() || 'ช่างทั่วไป',
-        workerForm.avatar
-      );
-      setWorkerForm({ name: '', role: '', avatar: '👷' });
+      await insertWorker({
+        name: workerForm.name.trim(),
+        role: finalRole,
+        avatar: '👷',
+        age: age || 0,
+        phone: workerForm.phone.trim(),
+        avatarUri: workerForm.avatarUri,
+      });
+      setWorkerForm({ name: '', role: '', customRole: '', age: '', phone: '', avatarUri: '' });
       setShowAddWorker(false);
       await loadData();
       Alert.alert('สำเร็จ', 'เพิ่มช่างเรียบร้อย');
@@ -138,13 +247,7 @@ export default function WorkerStatsScreen({ navigation }) {
     setSaving(true);
     try {
       const today = recordForm.date.trim() || new Date().toISOString().split('T')[0];
-      await insertWorkerRecord(
-        selectedWorker.id,
-        recordForm.workType,
-        today,
-        output,
-        quality
-      );
+      await insertWorkerRecord(selectedWorker.id, recordForm.workType, today, output, quality);
       setRecordForm({ workType: 'ผูกเหล็ก', date: '', output: '', quality: '' });
       setShowAddRecord(false);
       await loadData();
@@ -157,11 +260,51 @@ export default function WorkerStatsScreen({ navigation }) {
   };
 
   // ============================================================
+  // Delete Worker
+  // ============================================================
+  const handleDeleteWorker = (worker) => {
+    Alert.alert('ลบช่าง', `ต้องการลบ "${worker.name}" และสถิติทั้งหมดหรือไม่?`, [
+      { text: 'ยกเลิก', style: 'cancel' },
+      {
+        text: 'ลบ', style: 'destructive',
+        onPress: async () => {
+          await deleteWorker(worker.id);
+          setShowDetail(false);
+          setSelectedWorker(null);
+          await loadData();
+        },
+      },
+    ]);
+  };
+
+  // ============================================================
   // Sorted / Ranked workers
   // ============================================================
   const rankedWorkers = [...workers]
     .map(w => ({ ...w, overall: getOverallScore(w) }))
     .sort((a, b) => b.overall - a.overall);
+
+  // ============================================================
+  // Render: Worker Avatar (รูปถ่าย หรือ emoji)
+  // ============================================================
+  const renderAvatar = (worker, size = 48) => {
+    if (worker.avatar_uri) {
+      return (
+        <Image
+          source={{ uri: worker.avatar_uri }}
+          style={{
+            width: size, height: size, borderRadius: size / 2,
+            backgroundColor: '#F3F4F6',
+          }}
+        />
+      );
+    }
+    return (
+      <View style={[styles.avatarCircle, { width: size, height: size, borderRadius: size / 2 }]}>
+        <Text style={{ fontSize: size * 0.5 }}>{worker.avatar || '👷'}</Text>
+      </View>
+    );
+  };
 
   // ============================================================
   // Render: Individual Tab
@@ -171,7 +314,10 @@ export default function WorkerStatsScreen({ navigation }) {
       <Button
         title="เพิ่มช่างใหม่"
         icon="person-add-outline"
-        onPress={() => setShowAddWorker(true)}
+        onPress={() => {
+          setWorkerForm({ name: '', role: '', customRole: '', age: '', phone: '', avatarUri: '' });
+          setShowAddWorker(true);
+        }}
         style={{ marginBottom: 16 }}
       />
 
@@ -189,15 +335,14 @@ export default function WorkerStatsScreen({ navigation }) {
             >
               {/* Header Row */}
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
-                <View style={styles.avatarCircle}>
-                  <Text style={{ fontSize: 24 }}>{worker.avatar || '👷'}</Text>
-                </View>
+                {renderAvatar(worker, 48)}
                 <View style={{ flex: 1, marginLeft: 12 }}>
                   <Text style={{ fontSize: 16, fontWeight: '700', color: COLORS.text }}>
                     {worker.name}
                   </Text>
                   <Text style={{ fontSize: 13, color: COLORS.textSecondary, marginTop: 2 }}>
-                    {worker.role || 'ช่างทั่วไป'}
+                    {worker.role || 'ไม่ระบุตำแหน่ง'}
+                    {worker.age ? ` • ${worker.age} ปี` : ''}
                   </Text>
                 </View>
                 <Badge label={`เกรด ${grade.label}`} color={grade.color} bg={grade.bg} />
@@ -282,7 +427,7 @@ export default function WorkerStatsScreen({ navigation }) {
 
       {/* Ranking */}
       <Text style={{ fontSize: 17, fontWeight: '700', color: COLORS.text, marginBottom: 12 }}>
-        🏆 จัดอันดับช่าง
+        จัดอันดับช่าง
       </Text>
 
       {rankedWorkers.length > 0 ? (
@@ -292,29 +437,24 @@ export default function WorkerStatsScreen({ navigation }) {
           const isTop3 = index < 3;
 
           return (
-            <Card key={worker.id}>
+            <Card key={worker.id} onPress={() => { setSelectedWorker(worker); setShowDetail(true); }}>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                {/* Rank */}
-                <View style={[
-                  styles.rankBadge,
-                  isTop3 && { backgroundColor: grade.bg },
-                ]}>
+                <View style={[styles.rankBadge, isTop3 && { backgroundColor: grade.bg }]}>
                   <Text style={{ fontSize: isTop3 ? 20 : 14, fontWeight: '700', color: isTop3 ? grade.color : COLORS.textSecondary }}>
                     {medal}
                   </Text>
                 </View>
-
-                {/* Info */}
-                <View style={{ flex: 1, marginLeft: 12 }}>
+                <View style={{ marginLeft: 10, marginRight: 8 }}>
+                  {renderAvatar(worker, 36)}
+                </View>
+                <View style={{ flex: 1 }}>
                   <Text style={{ fontSize: 15, fontWeight: '600', color: COLORS.text }}>
-                    {worker.avatar} {worker.name}
+                    {worker.name}
                   </Text>
                   <Text style={{ fontSize: 12, color: COLORS.textSecondary, marginTop: 2 }}>
                     {worker.role} • {worker.records.length} งาน
                   </Text>
                 </View>
-
-                {/* Score */}
                 <View style={{ alignItems: 'flex-end' }}>
                   <Text style={{ fontSize: 20, fontWeight: '800', color: grade.color }}>
                     {worker.overall}
@@ -322,8 +462,6 @@ export default function WorkerStatsScreen({ navigation }) {
                   <Badge label={`เกรด ${grade.label}`} color={grade.color} bg={grade.bg} />
                 </View>
               </View>
-
-              {/* Progress */}
               <View style={{ marginTop: 10 }}>
                 <ProgressBar progress={worker.overall} height={6} color={grade.color} />
               </View>
@@ -331,18 +469,14 @@ export default function WorkerStatsScreen({ navigation }) {
           );
         })
       ) : (
-        <EmptyState
-          icon="trophy-outline"
-          title="ยังไม่มีข้อมูล"
-          subtitle="เพิ่มช่างและสถิติการทำงานก่อน"
-        />
+        <EmptyState icon="trophy-outline" title="ยังไม่มีข้อมูล" subtitle="เพิ่มช่างและสถิติการทำงานก่อน" />
       )}
 
       {/* Work Type Breakdown */}
       {workers.length > 0 && (
         <>
           <Text style={{ fontSize: 17, fontWeight: '700', color: COLORS.text, marginTop: 20, marginBottom: 12 }}>
-            📋 สรุปตามประเภทงาน
+            สรุปตามประเภทงาน
           </Text>
           {WORK_TYPES.map((wt) => {
             const allRecords = workers.flatMap(w => w.records).filter(r => r.workType === wt.key);
@@ -374,12 +508,12 @@ export default function WorkerStatsScreen({ navigation }) {
   );
 
   // ============================================================
-  // Modal: Add Worker
+  // Modal: Add Worker (ฟอร์มเพิ่มช่างใหม่)
   // ============================================================
   const renderAddWorkerModal = () => (
     <Modal visible={showAddWorker} animationType="slide" transparent>
       <View style={styles.modalOverlay}>
-        <View style={styles.modalContent}>
+        <View style={[styles.modalContent, { maxHeight: '90%' }]}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>เพิ่มช่างใหม่</Text>
             <TouchableOpacity onPress={() => setShowAddWorker(false)}>
@@ -387,46 +521,111 @@ export default function WorkerStatsScreen({ navigation }) {
             </TouchableOpacity>
           </View>
 
-          {/* Avatar Picker */}
-          <Text style={styles.fieldLabel}>เลือกอวาตาร์</Text>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
-            {AVATARS.map((av) => (
-              <TouchableOpacity
-                key={av}
-                onPress={() => setWorkerForm(prev => ({ ...prev, avatar: av }))}
-                style={[
-                  styles.avatarOption,
-                  workerForm.avatar === av && styles.avatarOptionSelected,
-                ]}
-              >
-                <Text style={{ fontSize: 28 }}>{av}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+          <ScrollView showsVerticalScrollIndicator={false}>
+            {/* ==================== รูปถ่ายช่าง ==================== */}
+            <Text style={styles.fieldLabel}>รูปถ่ายช่าง</Text>
+            <TouchableOpacity onPress={showImagePickerOptions} style={styles.photoUploadArea}>
+              {workerForm.avatarUri ? (
+                <View style={{ alignItems: 'center' }}>
+                  <Image
+                    source={{ uri: workerForm.avatarUri }}
+                    style={{ width: 100, height: 100, borderRadius: 50, marginBottom: 8 }}
+                  />
+                  <Text style={{ fontSize: 13, color: COLORS.primary, fontWeight: '600' }}>
+                    แตะเพื่อเปลี่ยนรูป
+                  </Text>
+                </View>
+              ) : (
+                <View style={{ alignItems: 'center' }}>
+                  <View style={{
+                    width: 80, height: 80, borderRadius: 40,
+                    backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center',
+                    marginBottom: 8,
+                  }}>
+                    <Ionicons name="camera-outline" size={32} color={COLORS.textLight} />
+                  </View>
+                  <Text style={{ fontSize: 13, color: COLORS.textSecondary }}>
+                    ถ่ายรูปหรือเลือกจากคลัง
+                  </Text>
+                  <Text style={{ fontSize: 11, color: COLORS.textLight, marginTop: 2 }}>
+                    (ไม่บังคับ — สามารถเพิ่มทีหลังได้)
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
 
-          <FormInput
-            label="ชื่อช่าง *"
-            value={workerForm.name}
-            onChangeText={v => setWorkerForm(prev => ({ ...prev, name: v }))}
-            placeholder="เช่น สมชาย ช่างเก่ง"
-            icon="person-outline"
-          />
+            {/* ==================== ชื่อช่าง ==================== */}
+            <FormInput
+              label="ชื่อ-นามสกุล *"
+              value={workerForm.name}
+              onChangeText={v => setWorkerForm(prev => ({ ...prev, name: v }))}
+              placeholder="เช่น สมชาย ใจดี"
+              icon="person-outline"
+            />
 
-          <FormInput
-            label="ตำแหน่ง/ความชำนาญ"
-            value={workerForm.role}
-            onChangeText={v => setWorkerForm(prev => ({ ...prev, role: v }))}
-            placeholder="เช่น ช่างผูกเหล็ก, ช่างไม้"
-            icon="construct-outline"
-          />
+            {/* ==================== ตำแหน่ง (Picker) ==================== */}
+            <Text style={styles.fieldLabel}>ตำแหน่งงาน *</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+              {WORKER_ROLES.map((r) => {
+                const selected = workerForm.role === r.key;
+                return (
+                  <TouchableOpacity
+                    key={r.key}
+                    onPress={() => setWorkerForm(prev => ({ ...prev, role: r.key }))}
+                    style={{
+                      flexDirection: 'row', alignItems: 'center', gap: 5,
+                      paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20,
+                      backgroundColor: selected ? r.color : '#F3F4F6',
+                      borderWidth: selected ? 0 : 1, borderColor: COLORS.border,
+                    }}
+                  >
+                    <Ionicons name={r.icon} size={14} color={selected ? '#fff' : r.color} />
+                    <Text style={{
+                      color: selected ? '#fff' : COLORS.textSecondary,
+                      fontWeight: '600', fontSize: 12,
+                    }}>
+                      {r.key}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
 
-          <Button title="บันทึก" onPress={handleAddWorker} loading={saving} icon="checkmark-circle" />
-          <Button
-            title="ยกเลิก"
-            variant="outline"
-            onPress={() => setShowAddWorker(false)}
-            style={{ marginTop: 8 }}
-          />
+            {/* ช่องกรอกเองถ้าเลือก "อื่นๆ" */}
+            {workerForm.role === 'อื่นๆ' && (
+              <FormInput
+                label="ระบุตำแหน่ง"
+                value={workerForm.customRole}
+                onChangeText={v => setWorkerForm(prev => ({ ...prev, customRole: v }))}
+                placeholder="กรอกตำแหน่งที่ต้องการ"
+                icon="create-outline"
+              />
+            )}
+
+            {/* ==================== อายุ ==================== */}
+            <FormInput
+              label="อายุ (ปี)"
+              value={workerForm.age}
+              onChangeText={v => setWorkerForm(prev => ({ ...prev, age: v }))}
+              placeholder="เช่น 35"
+              keyboardType="numeric"
+              icon="calendar-outline"
+            />
+
+            {/* ==================== เบอร์โทร ==================== */}
+            <FormInput
+              label="เบอร์โทรติดต่อ (ไม่บังคับ)"
+              value={workerForm.phone}
+              onChangeText={v => setWorkerForm(prev => ({ ...prev, phone: v }))}
+              placeholder="08x-xxx-xxxx"
+              keyboardType="phone-pad"
+              icon="call-outline"
+            />
+
+            {/* ==================== Buttons ==================== */}
+            <Button title="บันทึกช่าง" onPress={handleAddWorker} loading={saving} icon="checkmark-circle" style={{ marginTop: 8 }} />
+            <Button title="ยกเลิก" variant="outline" onPress={() => setShowAddWorker(false)} style={{ marginTop: 8, marginBottom: 20 }} />
+          </ScrollView>
         </View>
       </View>
     </Modal>
@@ -441,74 +640,54 @@ export default function WorkerStatsScreen({ navigation }) {
         <View style={styles.modalContent}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>
-              เพิ่มสถิติ — {selectedWorker?.avatar} {selectedWorker?.name}
+              เพิ่มสถิติ — {selectedWorker?.name}
             </Text>
             <TouchableOpacity onPress={() => setShowAddRecord(false)}>
               <Ionicons name="close" size={24} color={COLORS.textSecondary} />
             </TouchableOpacity>
           </View>
 
-          {/* Work Type Picker */}
-          <Text style={styles.fieldLabel}>ประเภทงาน</Text>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
-            {WORK_TYPES.map((wt) => {
-              const selected = recordForm.workType === wt.key;
-              return (
-                <TouchableOpacity
-                  key={wt.key}
-                  onPress={() => setRecordForm(prev => ({ ...prev, workType: wt.key }))}
-                  style={{
-                    flexDirection: 'row', alignItems: 'center', gap: 6,
-                    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20,
-                    backgroundColor: selected ? wt.color : '#F3F4F6',
-                    borderWidth: selected ? 0 : 1, borderColor: COLORS.border,
-                  }}
-                >
-                  <Ionicons name={wt.icon} size={14} color={selected ? '#fff' : wt.color} />
-                  <Text style={{
-                    color: selected ? '#fff' : COLORS.textSecondary,
-                    fontWeight: '600', fontSize: 12,
-                  }}>
-                    {wt.key}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+          <ScrollView showsVerticalScrollIndicator={false}>
+            {/* Work Type Picker */}
+            <Text style={styles.fieldLabel}>ประเภทงาน</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+              {WORK_TYPES.map((wt) => {
+                const selected = recordForm.workType === wt.key;
+                return (
+                  <TouchableOpacity
+                    key={wt.key}
+                    onPress={() => setRecordForm(prev => ({ ...prev, workType: wt.key }))}
+                    style={{
+                      flexDirection: 'row', alignItems: 'center', gap: 6,
+                      paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20,
+                      backgroundColor: selected ? wt.color : '#F3F4F6',
+                      borderWidth: selected ? 0 : 1, borderColor: COLORS.border,
+                    }}
+                  >
+                    <Ionicons name={wt.icon} size={14} color={selected ? '#fff' : wt.color} />
+                    <Text style={{ color: selected ? '#fff' : COLORS.textSecondary, fontWeight: '600', fontSize: 12 }}>
+                      {wt.key}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
 
-          <FormInput
-            label="วันที่"
-            value={recordForm.date}
-            onChangeText={v => setRecordForm(prev => ({ ...prev, date: v }))}
-            placeholder="YYYY-MM-DD (เว้นว่าง = วันนี้)"
-            icon="calendar-outline"
-          />
+            <FormInput label="วันที่" value={recordForm.date}
+              onChangeText={v => setRecordForm(prev => ({ ...prev, date: v }))}
+              placeholder="YYYY-MM-DD (เว้นว่าง = วันนี้)" icon="calendar-outline" />
 
-          <FormInput
-            label="คะแนนผลผลิต (0-100) *"
-            value={recordForm.output}
-            onChangeText={v => setRecordForm(prev => ({ ...prev, output: v }))}
-            placeholder="เช่น 85"
-            keyboardType="numeric"
-            icon="trending-up-outline"
-          />
+            <FormInput label="คะแนนผลผลิต (0-100) *" value={recordForm.output}
+              onChangeText={v => setRecordForm(prev => ({ ...prev, output: v }))}
+              placeholder="เช่น 85" keyboardType="numeric" icon="trending-up-outline" />
 
-          <FormInput
-            label="คะแนนคุณภาพ (0-100) *"
-            value={recordForm.quality}
-            onChangeText={v => setRecordForm(prev => ({ ...prev, quality: v }))}
-            placeholder="เช่น 90"
-            keyboardType="numeric"
-            icon="star-outline"
-          />
+            <FormInput label="คะแนนคุณภาพ (0-100) *" value={recordForm.quality}
+              onChangeText={v => setRecordForm(prev => ({ ...prev, quality: v }))}
+              placeholder="เช่น 90" keyboardType="numeric" icon="star-outline" />
 
-          <Button title="บันทึกสถิติ" onPress={handleAddRecord} loading={saving} icon="checkmark-circle" />
-          <Button
-            title="ยกเลิก"
-            variant="outline"
-            onPress={() => setShowAddRecord(false)}
-            style={{ marginTop: 8 }}
-          />
+            <Button title="บันทึกสถิติ" onPress={handleAddRecord} loading={saving} icon="checkmark-circle" />
+            <Button title="ยกเลิก" variant="outline" onPress={() => setShowAddRecord(false)} style={{ marginTop: 8, marginBottom: 20 }} />
+          </ScrollView>
         </View>
       </View>
     </Modal>
@@ -535,7 +714,7 @@ export default function WorkerStatsScreen({ navigation }) {
     return (
       <Modal visible={showDetail} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { maxHeight: '85%' }]}>
+          <View style={[styles.modalContent, { maxHeight: '90%' }]}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>รายละเอียดช่าง</Text>
               <TouchableOpacity onPress={() => setShowDetail(false)}>
@@ -546,19 +725,25 @@ export default function WorkerStatsScreen({ navigation }) {
             <ScrollView showsVerticalScrollIndicator={false}>
               {/* Profile Header */}
               <View style={{ alignItems: 'center', marginBottom: 20 }}>
-                <View style={[styles.avatarCircle, { width: 64, height: 64 }]}>
-                  <Text style={{ fontSize: 32 }}>{selectedWorker.avatar || '👷'}</Text>
-                </View>
-                <Text style={{ fontSize: 20, fontWeight: '700', color: COLORS.text, marginTop: 8 }}>
+                {renderAvatar(selectedWorker, 80)}
+                <Text style={{ fontSize: 20, fontWeight: '700', color: COLORS.text, marginTop: 10 }}>
                   {selectedWorker.name}
                 </Text>
-                <Text style={{ fontSize: 14, color: COLORS.textSecondary }}>
-                  {selectedWorker.role || 'ช่างทั่วไป'}
+                <Text style={{ fontSize: 14, color: COLORS.textSecondary, marginTop: 2 }}>
+                  {selectedWorker.role || 'ไม่ระบุตำแหน่ง'}
+                  {selectedWorker.age ? ` • ${selectedWorker.age} ปี` : ''}
                 </Text>
+                {selectedWorker.phone ? (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
+                    <Ionicons name="call-outline" size={14} color={COLORS.textLight} />
+                    <Text style={{ fontSize: 13, color: COLORS.textSecondary, marginLeft: 4 }}>
+                      {selectedWorker.phone}
+                    </Text>
+                  </View>
+                ) : null}
                 <Badge
                   label={`เกรด ${grade.label} • คะแนนรวม ${overall}%`}
-                  color={grade.color}
-                  bg={grade.bg}
+                  color={grade.color} bg={grade.bg}
                   style={{ marginTop: 8 }}
                 />
               </View>
@@ -568,7 +753,6 @@ export default function WorkerStatsScreen({ navigation }) {
                 <Text style={{ fontSize: 14, fontWeight: '600', color: COLORS.text, marginBottom: 12 }}>
                   สรุปภาพรวม
                 </Text>
-
                 <View style={{ marginBottom: 10 }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
                     <Text style={styles.statLabel}>ผลผลิตเฉลี่ย</Text>
@@ -576,7 +760,6 @@ export default function WorkerStatsScreen({ navigation }) {
                   </View>
                   <ProgressBar progress={avgOutput} height={10} color="#3B82F6" />
                 </View>
-
                 <View style={{ marginBottom: 10 }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
                     <Text style={styles.statLabel}>คุณภาพเฉลี่ย</Text>
@@ -584,7 +767,6 @@ export default function WorkerStatsScreen({ navigation }) {
                   </View>
                   <ProgressBar progress={avgQuality} height={10} color="#10B981" />
                 </View>
-
                 <View>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
                     <Text style={styles.statLabel}>คะแนนรวม</Text>
@@ -613,9 +795,7 @@ export default function WorkerStatsScreen({ navigation }) {
                           <Text style={{ fontSize: 13, fontWeight: '600', color: COLORS.text }}>{type}</Text>
                           <Text style={{ fontSize: 11, color: COLORS.textLight }}>{records.length} รายการ</Text>
                         </View>
-                        <Text style={{ fontSize: 14, fontWeight: '700', color: wt.color }}>
-                          {typeAvg}%
-                        </Text>
+                        <Text style={{ fontSize: 14, fontWeight: '700', color: wt.color }}>{typeAvg}%</Text>
                       </View>
                     );
                   })}
@@ -628,20 +808,16 @@ export default function WorkerStatsScreen({ navigation }) {
                   ประวัติล่าสุด
                 </Text>
                 {selectedWorker.records.length > 0 ? (
-                  selectedWorker.records.slice(-10).reverse().map((rec, i) => (
+                  selectedWorker.records.slice(0, 10).map((rec, i) => (
                     <View key={rec.id || i} style={{
                       flexDirection: 'row', alignItems: 'center', paddingVertical: 8,
                       borderBottomWidth: i < Math.min(selectedWorker.records.length - 1, 9) ? 1 : 0,
                       borderBottomColor: COLORS.borderLight,
                     }}>
-                      <Text style={{ fontSize: 12, color: COLORS.textLight, width: 80 }}>
-                        {rec.date || '-'}
-                      </Text>
-                      <Text style={{ flex: 1, fontSize: 13, color: COLORS.text }}>
-                        {rec.workType}
-                      </Text>
-                      <Badge label={`ผลผลิต ${rec.output}`} color="#3B82F6" bg="#DBEAFE" style={{ marginRight: 6 }} />
-                      <Badge label={`คุณภาพ ${rec.quality}`} color="#10B981" bg="#D1FAE5" />
+                      <Text style={{ fontSize: 12, color: COLORS.textLight, width: 80 }}>{rec.date || '-'}</Text>
+                      <Text style={{ flex: 1, fontSize: 13, color: COLORS.text }}>{rec.workType}</Text>
+                      <Badge label={`${rec.output}`} color="#3B82F6" bg="#DBEAFE" icon="trending-up-outline" style={{ marginRight: 6 }} />
+                      <Badge label={`${rec.quality}`} color="#10B981" bg="#D1FAE5" icon="star-outline" />
                     </View>
                   ))
                 ) : (
@@ -651,7 +827,7 @@ export default function WorkerStatsScreen({ navigation }) {
                 )}
               </Card>
 
-              {/* Action Button */}
+              {/* Actions */}
               <Button
                 title="เพิ่มสถิติให้ช่างคนนี้"
                 icon="add-circle-outline"
@@ -660,7 +836,14 @@ export default function WorkerStatsScreen({ navigation }) {
                   setRecordForm({ workType: 'ผูกเหล็ก', date: '', output: '', quality: '' });
                   setTimeout(() => setShowAddRecord(true), 300);
                 }}
-                style={{ marginTop: 4, marginBottom: 20 }}
+                style={{ marginTop: 4 }}
+              />
+              <Button
+                title="ลบช่างคนนี้"
+                variant="danger"
+                icon="trash-outline"
+                onPress={() => handleDeleteWorker(selectedWorker)}
+                style={{ marginTop: 8, marginBottom: 20 }}
               />
             </ScrollView>
           </View>
@@ -680,9 +863,7 @@ export default function WorkerStatsScreen({ navigation }) {
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
       {/* Header */}
-      <View style={{
-        backgroundColor: COLORS.primary, paddingTop: 50, paddingBottom: 16, paddingHorizontal: 20,
-      }}>
+      <View style={{ backgroundColor: COLORS.primary, paddingTop: 50, paddingBottom: 16, paddingHorizontal: 20 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           {navigation?.openDrawer && (
             <TouchableOpacity onPress={() => navigation.openDrawer()} style={{ marginRight: 12 }}>
@@ -690,12 +871,8 @@ export default function WorkerStatsScreen({ navigation }) {
             </TouchableOpacity>
           )}
           <View style={{ flex: 1 }}>
-            <Text style={{ color: '#fff', fontSize: 20, fontWeight: '700' }}>
-              สถิติและประเมินช่าง
-            </Text>
-            <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13, marginTop: 2 }}>
-              ติดตามผลงานและจัดอันดับ
-            </Text>
+            <Text style={{ color: '#fff', fontSize: 20, fontWeight: '700' }}>สถิติและประเมินช่าง</Text>
+            <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13, marginTop: 2 }}>ติดตามผลงานและจัดอันดับ</Text>
           </View>
         </View>
 
@@ -714,10 +891,7 @@ export default function WorkerStatsScreen({ navigation }) {
                 }}
               >
                 <Ionicons name={t.icon} size={16} color={active ? COLORS.primary : '#fff'} />
-                <Text style={{
-                  fontSize: 14, fontWeight: '600',
-                  color: active ? COLORS.primary : '#fff',
-                }}>
+                <Text style={{ fontSize: 14, fontWeight: '600', color: active ? COLORS.primary : '#fff' }}>
                   {t.label}
                 </Text>
               </TouchableOpacity>
@@ -750,27 +924,18 @@ const styles = StyleSheet.create({
     width: 48, height: 48, borderRadius: 24,
     backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center',
   },
-  statLabel: {
-    fontSize: 13, color: COLORS.textSecondary,
-  },
-  statValue: {
-    fontSize: 13, fontWeight: '700', color: COLORS.text,
-  },
+  statLabel: { fontSize: 13, color: COLORS.textSecondary },
+  statValue: { fontSize: 13, fontWeight: '700', color: COLORS.text },
   addRecordBtn: {
     flexDirection: 'row', alignItems: 'center',
     paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8,
     backgroundColor: COLORS.primary + '10',
   },
   summaryCard: {
-    flex: 1, borderRadius: 14, padding: 14, alignItems: 'center',
-    ...SHADOWS.sm,
+    flex: 1, borderRadius: 14, padding: 14, alignItems: 'center', ...SHADOWS.sm,
   },
-  summaryValue: {
-    fontSize: 24, fontWeight: '800', marginTop: 6,
-  },
-  summaryLabel: {
-    fontSize: 11, color: COLORS.textSecondary, marginTop: 2,
-  },
+  summaryValue: { fontSize: 24, fontWeight: '800', marginTop: 6 },
+  summaryLabel: { fontSize: 11, color: COLORS.textSecondary, marginTop: 2 },
   rankBadge: {
     width: 44, height: 44, borderRadius: 22,
     backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center',
@@ -778,25 +943,20 @@ const styles = StyleSheet.create({
   fieldLabel: {
     fontSize: 14, fontWeight: '600', color: COLORS.text, marginBottom: 8,
   },
-  avatarOption: {
-    width: 52, height: 52, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
-    backgroundColor: '#F3F4F6', borderWidth: 2, borderColor: 'transparent',
-  },
-  avatarOptionSelected: {
-    borderColor: COLORS.accent, backgroundColor: '#FEF3C7',
+  photoUploadArea: {
+    alignItems: 'center', paddingVertical: 20, marginBottom: 16,
+    borderWidth: 2, borderStyle: 'dashed', borderColor: COLORS.border, borderRadius: 16,
+    backgroundColor: '#FAFAFA',
   },
   modalOverlay: {
-    flex: 1, backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end',
   },
   modalContent: {
     backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24,
-    paddingHorizontal: 20, paddingTop: 20, paddingBottom: 34,
-    maxHeight: '80%',
+    paddingHorizontal: 20, paddingTop: 20, paddingBottom: 34, maxHeight: '85%',
   },
   modalHeader: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    marginBottom: 20,
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20,
   },
   modalTitle: {
     fontSize: 18, fontWeight: '700', color: COLORS.text, flex: 1,
