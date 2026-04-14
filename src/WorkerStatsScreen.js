@@ -8,11 +8,11 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
-import { COLORS, SHADOWS } from '../constants';
-import { Card, Badge, ProgressBar, Button, FormInput, EmptyState } from '../components';
+import { C } from './Components';
+import { Card, Badge, ProgressBar, Button, Input, Empty, WORKER_ROLES as ROLES_LIST } from './Components';
 import {
   getWorkersWithRecords, insertWorker, insertWorkerRecord, deleteWorker,
-} from '../db/workerRepo';
+} from './db';
 
 // ============================================================
 // ตำแหน่งช่างในไซต์ก่อสร้างจริง
@@ -337,10 +337,10 @@ export default function WorkerStatsScreen({ navigation }) {
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
                 {renderAvatar(worker, 48)}
                 <View style={{ flex: 1, marginLeft: 12 }}>
-                  <Text style={{ fontSize: 16, fontWeight: '700', color: COLORS.text }}>
+                  <Text style={{ fontSize: 16, fontWeight: '700', color: C.text }}>
                     {worker.name}
                   </Text>
-                  <Text style={{ fontSize: 13, color: COLORS.textSecondary, marginTop: 2 }}>
+                  <Text style={{ fontSize: 13, color: C.textSecondary, marginTop: 2 }}>
                     {worker.role || 'ไม่ระบุตำแหน่ง'}
                     {worker.age ? ` • ${worker.age} ปี` : ''}
                   </Text>
@@ -367,7 +367,7 @@ export default function WorkerStatsScreen({ navigation }) {
 
               {/* Footer */}
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
-                <Text style={{ fontSize: 12, color: COLORS.textLight }}>
+                <Text style={{ fontSize: 12, color: C.textLight }}>
                   สถิติทั้งหมด {worker.records.length} รายการ
                 </Text>
                 <TouchableOpacity
@@ -378,8 +378,8 @@ export default function WorkerStatsScreen({ navigation }) {
                   }}
                   style={styles.addRecordBtn}
                 >
-                  <Ionicons name="add-circle-outline" size={16} color={COLORS.primary} />
-                  <Text style={{ fontSize: 12, color: COLORS.primary, fontWeight: '600', marginLeft: 4 }}>
+                  <Ionicons name="add-circle-outline" size={16} color={C.primary} />
+                  <Text style={{ fontSize: 12, color: C.primary, fontWeight: '600', marginLeft: 4 }}>
                     เพิ่มสถิติ
                   </Text>
                 </TouchableOpacity>
@@ -388,7 +388,7 @@ export default function WorkerStatsScreen({ navigation }) {
           );
         })
       ) : (
-        <EmptyState
+        <Empty
           icon="people-outline"
           title="ยังไม่มีข้อมูลช่าง"
           subtitle="กดปุ่มด้านบนเพื่อเพิ่มช่างคนแรก"
@@ -426,7 +426,7 @@ export default function WorkerStatsScreen({ navigation }) {
       </View>
 
       {/* Ranking */}
-      <Text style={{ fontSize: 17, fontWeight: '700', color: COLORS.text, marginBottom: 12 }}>
+      <Text style={{ fontSize: 17, fontWeight: '700', color: C.text, marginBottom: 12 }}>
         จัดอันดับช่าง
       </Text>
 
@@ -440,7 +440,7 @@ export default function WorkerStatsScreen({ navigation }) {
             <Card key={worker.id} onPress={() => { setSelectedWorker(worker); setShowDetail(true); }}>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                 <View style={[styles.rankBadge, isTop3 && { backgroundColor: grade.bg }]}>
-                  <Text style={{ fontSize: isTop3 ? 20 : 14, fontWeight: '700', color: isTop3 ? grade.color : COLORS.textSecondary }}>
+                  <Text style={{ fontSize: isTop3 ? 20 : 14, fontWeight: '700', color: isTop3 ? grade.color : C.textSecondary }}>
                     {medal}
                   </Text>
                 </View>
@@ -448,10 +448,10 @@ export default function WorkerStatsScreen({ navigation }) {
                   {renderAvatar(worker, 36)}
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 15, fontWeight: '600', color: COLORS.text }}>
+                  <Text style={{ fontSize: 15, fontWeight: '600', color: C.text }}>
                     {worker.name}
                   </Text>
-                  <Text style={{ fontSize: 12, color: COLORS.textSecondary, marginTop: 2 }}>
+                  <Text style={{ fontSize: 12, color: C.textSecondary, marginTop: 2 }}>
                     {worker.role} • {worker.records.length} งาน
                   </Text>
                 </View>
@@ -469,13 +469,13 @@ export default function WorkerStatsScreen({ navigation }) {
           );
         })
       ) : (
-        <EmptyState icon="trophy-outline" title="ยังไม่มีข้อมูล" subtitle="เพิ่มช่างและสถิติการทำงานก่อน" />
+        <Empty icon="trophy-outline" title="ยังไม่มีข้อมูล" subtitle="เพิ่มช่างและสถิติการทำงานก่อน" />
       )}
 
       {/* Work Type Breakdown */}
       {workers.length > 0 && (
         <>
-          <Text style={{ fontSize: 17, fontWeight: '700', color: COLORS.text, marginTop: 20, marginBottom: 12 }}>
+          <Text style={{ fontSize: 17, fontWeight: '700', color: C.text, marginTop: 20, marginBottom: 12 }}>
             สรุปตามประเภทงาน
           </Text>
           {WORK_TYPES.map((wt) => {
@@ -492,8 +492,8 @@ export default function WorkerStatsScreen({ navigation }) {
                     <Ionicons name={wt.icon} size={20} color={wt.color} />
                   </View>
                   <View style={{ flex: 1, marginLeft: 12 }}>
-                    <Text style={{ fontSize: 14, fontWeight: '600', color: COLORS.text }}>{wt.key}</Text>
-                    <Text style={{ fontSize: 12, color: COLORS.textSecondary }}>
+                    <Text style={{ fontSize: 14, fontWeight: '600', color: C.text }}>{wt.key}</Text>
+                    <Text style={{ fontSize: 12, color: C.textSecondary }}>
                       {allRecords.length} รายการ • เฉลี่ย {avg}%
                     </Text>
                   </View>
@@ -517,7 +517,7 @@ export default function WorkerStatsScreen({ navigation }) {
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>เพิ่มช่างใหม่</Text>
             <TouchableOpacity onPress={() => setShowAddWorker(false)}>
-              <Ionicons name="close" size={24} color={COLORS.textSecondary} />
+              <Ionicons name="close" size={24} color={C.textSecondary} />
             </TouchableOpacity>
           </View>
 
@@ -531,7 +531,7 @@ export default function WorkerStatsScreen({ navigation }) {
                     source={{ uri: workerForm.avatarUri }}
                     style={{ width: 100, height: 100, borderRadius: 50, marginBottom: 8 }}
                   />
-                  <Text style={{ fontSize: 13, color: COLORS.primary, fontWeight: '600' }}>
+                  <Text style={{ fontSize: 13, color: C.primary, fontWeight: '600' }}>
                     แตะเพื่อเปลี่ยนรูป
                   </Text>
                 </View>
@@ -542,12 +542,12 @@ export default function WorkerStatsScreen({ navigation }) {
                     backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center',
                     marginBottom: 8,
                   }}>
-                    <Ionicons name="camera-outline" size={32} color={COLORS.textLight} />
+                    <Ionicons name="camera-outline" size={32} color={C.textLight} />
                   </View>
-                  <Text style={{ fontSize: 13, color: COLORS.textSecondary }}>
+                  <Text style={{ fontSize: 13, color: C.textSecondary }}>
                     ถ่ายรูปหรือเลือกจากคลัง
                   </Text>
-                  <Text style={{ fontSize: 11, color: COLORS.textLight, marginTop: 2 }}>
+                  <Text style={{ fontSize: 11, color: C.textLight, marginTop: 2 }}>
                     (ไม่บังคับ — สามารถเพิ่มทีหลังได้)
                   </Text>
                 </View>
@@ -555,7 +555,7 @@ export default function WorkerStatsScreen({ navigation }) {
             </TouchableOpacity>
 
             {/* ==================== ชื่อช่าง ==================== */}
-            <FormInput
+            <Input
               label="ชื่อ-นามสกุล *"
               value={workerForm.name}
               onChangeText={v => setWorkerForm(prev => ({ ...prev, name: v }))}
@@ -576,12 +576,12 @@ export default function WorkerStatsScreen({ navigation }) {
                       flexDirection: 'row', alignItems: 'center', gap: 5,
                       paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20,
                       backgroundColor: selected ? r.color : '#F3F4F6',
-                      borderWidth: selected ? 0 : 1, borderColor: COLORS.border,
+                      borderWidth: selected ? 0 : 1, borderColor: C.border,
                     }}
                   >
                     <Ionicons name={r.icon} size={14} color={selected ? '#fff' : r.color} />
                     <Text style={{
-                      color: selected ? '#fff' : COLORS.textSecondary,
+                      color: selected ? '#fff' : C.textSecondary,
                       fontWeight: '600', fontSize: 12,
                     }}>
                       {r.key}
@@ -593,7 +593,7 @@ export default function WorkerStatsScreen({ navigation }) {
 
             {/* ช่องกรอกเองถ้าเลือก "อื่นๆ" */}
             {workerForm.role === 'อื่นๆ' && (
-              <FormInput
+              <Input
                 label="ระบุตำแหน่ง"
                 value={workerForm.customRole}
                 onChangeText={v => setWorkerForm(prev => ({ ...prev, customRole: v }))}
@@ -603,7 +603,7 @@ export default function WorkerStatsScreen({ navigation }) {
             )}
 
             {/* ==================== อายุ ==================== */}
-            <FormInput
+            <Input
               label="อายุ (ปี)"
               value={workerForm.age}
               onChangeText={v => setWorkerForm(prev => ({ ...prev, age: v }))}
@@ -613,7 +613,7 @@ export default function WorkerStatsScreen({ navigation }) {
             />
 
             {/* ==================== เบอร์โทร ==================== */}
-            <FormInput
+            <Input
               label="เบอร์โทรติดต่อ (ไม่บังคับ)"
               value={workerForm.phone}
               onChangeText={v => setWorkerForm(prev => ({ ...prev, phone: v }))}
@@ -643,7 +643,7 @@ export default function WorkerStatsScreen({ navigation }) {
               เพิ่มสถิติ — {selectedWorker?.name}
             </Text>
             <TouchableOpacity onPress={() => setShowAddRecord(false)}>
-              <Ionicons name="close" size={24} color={COLORS.textSecondary} />
+              <Ionicons name="close" size={24} color={C.textSecondary} />
             </TouchableOpacity>
           </View>
 
@@ -661,11 +661,11 @@ export default function WorkerStatsScreen({ navigation }) {
                       flexDirection: 'row', alignItems: 'center', gap: 6,
                       paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20,
                       backgroundColor: selected ? wt.color : '#F3F4F6',
-                      borderWidth: selected ? 0 : 1, borderColor: COLORS.border,
+                      borderWidth: selected ? 0 : 1, borderColor: C.border,
                     }}
                   >
                     <Ionicons name={wt.icon} size={14} color={selected ? '#fff' : wt.color} />
-                    <Text style={{ color: selected ? '#fff' : COLORS.textSecondary, fontWeight: '600', fontSize: 12 }}>
+                    <Text style={{ color: selected ? '#fff' : C.textSecondary, fontWeight: '600', fontSize: 12 }}>
                       {wt.key}
                     </Text>
                   </TouchableOpacity>
@@ -673,15 +673,15 @@ export default function WorkerStatsScreen({ navigation }) {
               })}
             </View>
 
-            <FormInput label="วันที่" value={recordForm.date}
+            <Input label="วันที่" value={recordForm.date}
               onChangeText={v => setRecordForm(prev => ({ ...prev, date: v }))}
               placeholder="YYYY-MM-DD (เว้นว่าง = วันนี้)" icon="calendar-outline" />
 
-            <FormInput label="คะแนนผลผลิต (0-100) *" value={recordForm.output}
+            <Input label="คะแนนผลผลิต (0-100) *" value={recordForm.output}
               onChangeText={v => setRecordForm(prev => ({ ...prev, output: v }))}
               placeholder="เช่น 85" keyboardType="numeric" icon="trending-up-outline" />
 
-            <FormInput label="คะแนนคุณภาพ (0-100) *" value={recordForm.quality}
+            <Input label="คะแนนคุณภาพ (0-100) *" value={recordForm.quality}
               onChangeText={v => setRecordForm(prev => ({ ...prev, quality: v }))}
               placeholder="เช่น 90" keyboardType="numeric" icon="star-outline" />
 
@@ -718,7 +718,7 @@ export default function WorkerStatsScreen({ navigation }) {
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>รายละเอียดช่าง</Text>
               <TouchableOpacity onPress={() => setShowDetail(false)}>
-                <Ionicons name="close" size={24} color={COLORS.textSecondary} />
+                <Ionicons name="close" size={24} color={C.textSecondary} />
               </TouchableOpacity>
             </View>
 
@@ -726,17 +726,17 @@ export default function WorkerStatsScreen({ navigation }) {
               {/* Profile Header */}
               <View style={{ alignItems: 'center', marginBottom: 20 }}>
                 {renderAvatar(selectedWorker, 80)}
-                <Text style={{ fontSize: 20, fontWeight: '700', color: COLORS.text, marginTop: 10 }}>
+                <Text style={{ fontSize: 20, fontWeight: '700', color: C.text, marginTop: 10 }}>
                   {selectedWorker.name}
                 </Text>
-                <Text style={{ fontSize: 14, color: COLORS.textSecondary, marginTop: 2 }}>
+                <Text style={{ fontSize: 14, color: C.textSecondary, marginTop: 2 }}>
                   {selectedWorker.role || 'ไม่ระบุตำแหน่ง'}
                   {selectedWorker.age ? ` • ${selectedWorker.age} ปี` : ''}
                 </Text>
                 {selectedWorker.phone ? (
                   <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
-                    <Ionicons name="call-outline" size={14} color={COLORS.textLight} />
-                    <Text style={{ fontSize: 13, color: COLORS.textSecondary, marginLeft: 4 }}>
+                    <Ionicons name="call-outline" size={14} color={C.textLight} />
+                    <Text style={{ fontSize: 13, color: C.textSecondary, marginLeft: 4 }}>
                       {selectedWorker.phone}
                     </Text>
                   </View>
@@ -750,7 +750,7 @@ export default function WorkerStatsScreen({ navigation }) {
 
               {/* Overall Stats */}
               <Card>
-                <Text style={{ fontSize: 14, fontWeight: '600', color: COLORS.text, marginBottom: 12 }}>
+                <Text style={{ fontSize: 14, fontWeight: '600', color: C.text, marginBottom: 12 }}>
                   สรุปภาพรวม
                 </Text>
                 <View style={{ marginBottom: 10 }}>
@@ -779,7 +779,7 @@ export default function WorkerStatsScreen({ navigation }) {
               {/* Records by Type */}
               {Object.entries(byType).length > 0 && (
                 <Card>
-                  <Text style={{ fontSize: 14, fontWeight: '600', color: COLORS.text, marginBottom: 12 }}>
+                  <Text style={{ fontSize: 14, fontWeight: '600', color: C.text, marginBottom: 12 }}>
                     สถิติแยกตามประเภทงาน
                   </Text>
                   {Object.entries(byType).map(([type, records]) => {
@@ -788,12 +788,12 @@ export default function WorkerStatsScreen({ navigation }) {
                     return (
                       <View key={type} style={{
                         flexDirection: 'row', alignItems: 'center', paddingVertical: 10,
-                        borderBottomWidth: 1, borderBottomColor: COLORS.borderLight,
+                        borderBottomWidth: 1, borderBottomColor: C.borderLight,
                       }}>
                         <Ionicons name={wt.icon} size={18} color={wt.color} style={{ width: 28 }} />
                         <View style={{ flex: 1 }}>
-                          <Text style={{ fontSize: 13, fontWeight: '600', color: COLORS.text }}>{type}</Text>
-                          <Text style={{ fontSize: 11, color: COLORS.textLight }}>{records.length} รายการ</Text>
+                          <Text style={{ fontSize: 13, fontWeight: '600', color: C.text }}>{type}</Text>
+                          <Text style={{ fontSize: 11, color: C.textLight }}>{records.length} รายการ</Text>
                         </View>
                         <Text style={{ fontSize: 14, fontWeight: '700', color: wt.color }}>{typeAvg}%</Text>
                       </View>
@@ -804,7 +804,7 @@ export default function WorkerStatsScreen({ navigation }) {
 
               {/* Recent Records */}
               <Card>
-                <Text style={{ fontSize: 14, fontWeight: '600', color: COLORS.text, marginBottom: 12 }}>
+                <Text style={{ fontSize: 14, fontWeight: '600', color: C.text, marginBottom: 12 }}>
                   ประวัติล่าสุด
                 </Text>
                 {selectedWorker.records.length > 0 ? (
@@ -812,16 +812,16 @@ export default function WorkerStatsScreen({ navigation }) {
                     <View key={rec.id || i} style={{
                       flexDirection: 'row', alignItems: 'center', paddingVertical: 8,
                       borderBottomWidth: i < Math.min(selectedWorker.records.length - 1, 9) ? 1 : 0,
-                      borderBottomColor: COLORS.borderLight,
+                      borderBottomColor: C.borderLight,
                     }}>
-                      <Text style={{ fontSize: 12, color: COLORS.textLight, width: 80 }}>{rec.date || '-'}</Text>
-                      <Text style={{ flex: 1, fontSize: 13, color: COLORS.text }}>{rec.workType}</Text>
+                      <Text style={{ fontSize: 12, color: C.textLight, width: 80 }}>{rec.date || '-'}</Text>
+                      <Text style={{ flex: 1, fontSize: 13, color: C.text }}>{rec.workType}</Text>
                       <Badge label={`${rec.output}`} color="#3B82F6" bg="#DBEAFE" icon="trending-up-outline" style={{ marginRight: 6 }} />
                       <Badge label={`${rec.quality}`} color="#10B981" bg="#D1FAE5" icon="star-outline" />
                     </View>
                   ))
                 ) : (
-                  <Text style={{ fontSize: 13, color: COLORS.textLight, textAlign: 'center', paddingVertical: 16 }}>
+                  <Text style={{ fontSize: 13, color: C.textLight, textAlign: 'center', paddingVertical: 16 }}>
                     ยังไม่มีข้อมูล
                   </Text>
                 )}
@@ -861,9 +861,9 @@ export default function WorkerStatsScreen({ navigation }) {
   ];
 
   return (
-    <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
+    <View style={{ flex: 1, backgroundColor: C.bg }}>
       {/* Header */}
-      <View style={{ backgroundColor: COLORS.primary, paddingTop: 50, paddingBottom: 16, paddingHorizontal: 20 }}>
+      <View style={{ backgroundColor: C.primary, paddingTop: 50, paddingBottom: 16, paddingHorizontal: 20 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           {navigation?.openDrawer && (
             <TouchableOpacity onPress={() => navigation.openDrawer()} style={{ marginRight: 12 }}>
@@ -890,8 +890,8 @@ export default function WorkerStatsScreen({ navigation }) {
                   backgroundColor: active ? '#fff' : 'rgba(255,255,255,0.1)',
                 }}
               >
-                <Ionicons name={t.icon} size={16} color={active ? COLORS.primary : '#fff'} />
-                <Text style={{ fontSize: 14, fontWeight: '600', color: active ? COLORS.primary : '#fff' }}>
+                <Ionicons name={t.icon} size={16} color={active ? C.primary : '#fff'} />
+                <Text style={{ fontSize: 14, fontWeight: '600', color: active ? C.primary : '#fff' }}>
                   {t.label}
                 </Text>
               </TouchableOpacity>
@@ -924,28 +924,28 @@ const styles = StyleSheet.create({
     width: 48, height: 48, borderRadius: 24,
     backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center',
   },
-  statLabel: { fontSize: 13, color: COLORS.textSecondary },
-  statValue: { fontSize: 13, fontWeight: '700', color: COLORS.text },
+  statLabel: { fontSize: 13, color: C.textSecondary },
+  statValue: { fontSize: 13, fontWeight: '700', color: C.text },
   addRecordBtn: {
     flexDirection: 'row', alignItems: 'center',
     paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8,
-    backgroundColor: COLORS.primary + '10',
+    backgroundColor: C.primary + '10',
   },
   summaryCard: {
-    flex: 1, borderRadius: 14, padding: 14, alignItems: 'center', ...SHADOWS.sm,
+    flex: 1, borderRadius: 14, padding: 14, alignItems: 'center', ...{ shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 2, elevation: 2 },
   },
   summaryValue: { fontSize: 24, fontWeight: '800', marginTop: 6 },
-  summaryLabel: { fontSize: 11, color: COLORS.textSecondary, marginTop: 2 },
+  summaryLabel: { fontSize: 11, color: C.textSecondary, marginTop: 2 },
   rankBadge: {
     width: 44, height: 44, borderRadius: 22,
     backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center',
   },
   fieldLabel: {
-    fontSize: 14, fontWeight: '600', color: COLORS.text, marginBottom: 8,
+    fontSize: 14, fontWeight: '600', color: C.text, marginBottom: 8,
   },
   photoUploadArea: {
     alignItems: 'center', paddingVertical: 20, marginBottom: 16,
-    borderWidth: 2, borderStyle: 'dashed', borderColor: COLORS.border, borderRadius: 16,
+    borderWidth: 2, borderStyle: 'dashed', borderColor: C.border, borderRadius: 16,
     backgroundColor: '#FAFAFA',
   },
   modalOverlay: {
@@ -959,6 +959,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20,
   },
   modalTitle: {
-    fontSize: 18, fontWeight: '700', color: COLORS.text, flex: 1,
+    fontSize: 18, fontWeight: '700', color: C.text, flex: 1,
   },
 });
