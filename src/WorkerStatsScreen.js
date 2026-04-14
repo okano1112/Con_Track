@@ -874,6 +874,11 @@ export default function WorkerStatsScreen({ navigation }) {
             <Text style={{ color: '#fff', fontSize: 20, fontWeight: '700' }}>สถิติและประเมินช่าง</Text>
             <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13, marginTop: 2 }}>ติดตามผลงานและจัดอันดับ</Text>
           </View>
+          <TouchableOpacity onPress={() => navigation.navigate('TeamCalc')}
+            style={{ backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Ionicons name="calculator-outline" size={16} color="#fff" />
+            <Text style={{ color: '#fff', fontSize: 12, fontWeight: '600' }}>จัดทีม</Text>
+          </TouchableOpacity>
         </View>
 
         {/* Tab Switcher */}

@@ -22,6 +22,7 @@ import { ProjectsListScreen, AddProjectScreen, ProjectDetailScreen, AddTaskScree
 import DocumentsScreen from './src/DocumentsScreen';
 import ProfileScreen from './src/ProfileScreen';
 import WorkerStatsScreen from './src/WorkerStatsScreen';
+import TeamCalcScreen from './src/Teamcalcscreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -82,6 +83,7 @@ function MainStack() {
       <Stack.Screen name="ProjectDetail" component={ProjectDetailScreen} />
       <Stack.Screen name="AddTask" component={AddTaskScreen} />
       <Stack.Screen name="AddDocument" component={AddDocumentScreen} />
+      <Stack.Screen name="TeamCalc" component={TeamCalcScreen} />
       {/* ถ้าจะเพิ่มหน้าจอใหม่ → เพิ่ม Stack.Screen ตรงนี้ */}
     </Stack.Navigator>
   );
