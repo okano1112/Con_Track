@@ -1,9 +1,3 @@
-// App.js
-// ============================================================
-// Navigation ทั้งหมดรวมไว้ที่นี่
-// ถ้าจะเพิ่มหน้าจอใหม่ → เพิ่ม Stack.Screen ใน MainStack
-// ============================================================
-
 import 'react-native-gesture-handler';
 import React from 'react';
 import { ActivityIndicator, View } from 'react-native';

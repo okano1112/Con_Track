@@ -1,15 +1,7 @@
-// src/db.js
-// ============================================================
-// ฐานข้อมูลทั้งหมดรวมไว้ไฟล์เดียว
-// ถ้าจะเพิ่มตาราง → เพิ่ม CREATE TABLE ใน initDB()
-// ถ้าจะเพิ่มฟังก์ชัน → เพิ่ม export function ด้านล่าง
-// ============================================================
-
 import * as SQLite from 'expo-sqlite';
 
 let _db = null;
 
-// เปิด DB + สร้างตารางทั้งหมด (ครั้งแรกเท่านั้น)
 export async function getDB() {
   if (_db) return _db;
   _db = await SQLite.openDatabaseAsync('ots_app.db');
@@ -20,8 +12,8 @@ export async function getDB() {
 }
 
 async function initDB(db) {
-  await db.execAsync(`
-    CREATE TABLE IF NOT EXISTS users (
+  await db.execAsync(
+    `CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT NOT NULL UNIQUE,
       password TEXT NOT NULL,
@@ -32,7 +24,6 @@ async function initDB(db) {
       role TEXT DEFAULT 'member',
       created_at TEXT DEFAULT (datetime('now','localtime'))
     );
-
     CREATE TABLE IF NOT EXISTS projects (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
@@ -108,7 +99,7 @@ async function initDB(db) {
 }
 
 // ============================================================
-// AUTH — ง่ายสุด เก็บ password ตรงๆ (สำหรับ prototype)
+// AUTH
 // ============================================================
 export async function register(username, password, fullName, position, department, phone) {
   const db = await getDB();
@@ -267,12 +258,28 @@ export async function deleteDocument(id) {
 
 // ============================================================
 // WORKERS
+// รับได้ทั้ง object และ parameter แยก
 // ============================================================
-export async function insertWorker(name, role, age, phone, avatarUri) {
+export async function insertWorker(nameOrObj, role, age, phone, avatarUri) {
   const db = await getDB();
+  // รองรับ 2 แบบ: insertWorker({name, role, ...}) หรือ insertWorker(name, role, age, phone, uri)
+  let n, ro, ag, ph, av;
+  if (typeof nameOrObj === 'object' && nameOrObj !== null) {
+    n = nameOrObj.name;
+    ro = nameOrObj.role || '';
+    ag = nameOrObj.age || 0;
+    ph = nameOrObj.phone || '';
+    av = nameOrObj.avatarUri || nameOrObj.avatar_uri || '';
+  } else {
+    n = nameOrObj;
+    ro = role || '';
+    ag = age || 0;
+    ph = phone || '';
+    av = avatarUri || '';
+  }
   const r = await db.runAsync(
     'INSERT INTO workers (name,role,age,phone,avatar_uri) VALUES (?,?,?,?,?)',
-    [name, role || '', age || 0, phone || '', avatarUri || '']
+    [n, ro, ag, ph, av]
   );
   return r.lastInsertRowId;
 }

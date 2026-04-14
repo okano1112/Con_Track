@@ -1,9 +1,3 @@
-// src/Components.js
-// ============================================================
-// Component ที่ใช้ซ้ำทุกหน้า — รวมไว้ที่เดียว
-// ถ้าจะเพิ่ม component → เพิ่ม export function ด้านล่าง
-// ============================================================
-
 import React from 'react';
 import { TouchableOpacity, Text, View, TextInput, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';

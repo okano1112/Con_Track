@@ -9,24 +9,34 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
-  Alert, RefreshControl,
+  RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import { C, Card, Button, Badge, ProgressBar, Header, Empty } from './Components';
+import { C, Card, Button, Header, Empty } from './Components';
 import { getWorkersWithRecords } from './db';
 
 // ============================================================
 // ประเภทงาน + หน่วยวัด
 // 🔧 TODO-LOGIC #1: เพิ่ม/แก้ประเภทงานและหน่วยวัดตรงนี้
+//
+// สำคัญ: id ต้องตรงกับ work_type ที่บันทึกใน WorkerStatsScreen
+// WorkerStatsScreen บันทึก work_type เป็นภาษาไทย เช่น 'ผูกเหล็ก'
+// ดังนั้น id ตรงนี้ต้องเป็นภาษาไทยด้วย
 // ============================================================
 const WORK_TYPES = [
-  { id: 'rebar', name: 'ผูกเหล็ก', unit: 'กก./วัน', icon: 'construct-outline' },
-  { id: 'brick', name: 'ก่ออิฐ', unit: 'ตร.ม./วัน', icon: 'grid-outline' },
-  { id: 'plaster', name: 'ฉาบปูน', unit: 'ตร.ม./วัน', icon: 'layers-outline' },
-  { id: 'tile', name: 'ปูกระเบื้อง', unit: 'ตร.ม./วัน', icon: 'apps-outline' },
-  { id: 'formwork', name: 'ตั้งแบบ', unit: 'ตร.ม./วัน', icon: 'resize-outline' },
-  { id: 'concrete', name: 'เทคอนกรีต', unit: 'ลบ.ม./วัน', icon: 'cube-outline' },
+  { id: 'ผูกเหล็ก', name: 'ผูกเหล็ก', unit: 'กก./วัน', icon: 'construct-outline' },
+  { id: 'เทปูน', name: 'เทปูน', unit: 'ลบ.ม./วัน', icon: 'cube-outline' },
+  { id: 'ก่ออิฐ', name: 'ก่ออิฐ', unit: 'ตร.ม./วัน', icon: 'grid-outline' },
+  { id: 'ฉาบปูน', name: 'ฉาบปูน', unit: 'ตร.ม./วัน', icon: 'layers-outline' },
+  { id: 'งานไม้', name: 'งานไม้', unit: 'ตร.ม./วัน', icon: 'hammer-outline' },
+  { id: 'งานไฟฟ้า', name: 'งานไฟฟ้า', unit: 'จุด/วัน', icon: 'flash-outline' },
+  { id: 'งานประปา', name: 'งานประปา', unit: 'จุด/วัน', icon: 'water-outline' },
+  { id: 'งานทาสี', name: 'งานทาสี', unit: 'ตร.ม./วัน', icon: 'color-palette-outline' },
+  { id: 'งานกระเบื้อง', name: 'งานกระเบื้อง', unit: 'ตร.ม./วัน', icon: 'apps-outline' },
+  { id: 'งานฝ้า', name: 'งานฝ้า', unit: 'ตร.ม./วัน', icon: 'resize-outline' },
+  { id: 'งานเชื่อม', name: 'งานเชื่อม', unit: 'จุด/วัน', icon: 'flame-outline' },
+  { id: 'อื่นๆ', name: 'อื่นๆ', unit: 'หน่วย/วัน', icon: 'ellipsis-horizontal-outline' },
 ];
 
 // ============================================================
@@ -34,6 +44,7 @@ const WORK_TYPES = [
 // 🔧 TODO-LOGIC #2: แก้สูตรคำนวณเฉลี่ยตรงนี้
 // ============================================================
 function getWorkerStats(worker, workTypeId) {
+  // records จาก DB มี field ชื่อ work_type (ไม่ใช่ workType)
   const recs = worker.records.filter(r => r.work_type === workTypeId);
   if (!recs.length) return null;
 
@@ -52,7 +63,9 @@ function getWorkerStats(worker, workTypeId) {
 // ============================================================
 function calcTeamStats(members, workTypeId) {
   if (!members.length) return null;
-  const stats = members.map(m => ({ ...m, stats: getWorkerStats(m, workTypeId) })).filter(m => m.stats);
+  const stats = members
+    .map(m => ({ ...m, stats: getWorkerStats(m, workTypeId) }))
+    .filter(m => m.stats);
   if (!stats.length) return null;
 
   // ─── สูตร: รวมผลผลิต + เฉลี่ยคุณภาพ (แก้ตรงนี้) ───
@@ -72,7 +85,6 @@ function predictDays(dailyCapacity, totalWork) {
   return Math.ceil(totalWork / dailyCapacity);
 }
 
-// สีตามคุณภาพ
 function qualityColor(q) {
   if (q >= 90) return '#10B981';
   if (q >= 80) return '#F59E0B';
@@ -85,13 +97,27 @@ function qualityColor(q) {
 export default function TeamCalcScreen({ navigation }) {
   const [workers, setWorkers] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
-  const [tab, setTab] = useState('team'); // 'team' | 'predict'
+  const [tab, setTab] = useState('team');
 
   const load = async () => {
     try { setWorkers(await getWorkersWithRecords()); }
-    catch (e) { console.log(e); }
+    catch (e) { console.log('TeamCalc load error:', e); }
   };
   useFocusEffect(useCallback(() => { load(); }, []));
+
+  // หาว่าใน DB มี work_type อะไรบ้างจริงๆ (เพื่อแสดงเฉพาะที่มีข้อมูล)
+  const allWorkTypes = useMemo(() => {
+    const typesInDB = new Set();
+    workers.forEach(w => w.records.forEach(r => { if (r.work_type) typesInDB.add(r.work_type); }));
+    // รวม: WORK_TYPES ที่กำหนดไว้ + work_type ที่มีใน DB แต่ไม่อยู่ใน list
+    const result = [...WORK_TYPES];
+    typesInDB.forEach(t => {
+      if (!result.find(wt => wt.id === t)) {
+        result.push({ id: t, name: t, unit: 'หน่วย/วัน', icon: 'ellipsis-horizontal-outline' });
+      }
+    });
+    return result;
+  }, [workers]);
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
@@ -118,7 +144,10 @@ export default function TeamCalcScreen({ navigation }) {
 
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}>
-        {tab === 'team' ? <TeamTab workers={workers} /> : <PredictTab workers={workers} />}
+        {tab === 'team'
+          ? <TeamTab workers={workers} workTypes={allWorkTypes} />
+          : <PredictTab workers={workers} workTypes={allWorkTypes} />
+        }
       </ScrollView>
     </View>
   );
@@ -127,17 +156,15 @@ export default function TeamCalcScreen({ navigation }) {
 // ============================================================
 // TAB: จัดทีม
 // ============================================================
-function TeamTab({ workers }) {
-  const [workType, setWorkType] = useState('rebar');
+function TeamTab({ workers, workTypes }) {
+  const [workType, setWorkType] = useState(workTypes[0]?.id || '');
   const [selectedIds, setSelectedIds] = useState([]);
-  const wt = WORK_TYPES.find(w => w.id === workType);
+  const wt = workTypes.find(w => w.id === workType);
 
-  // ช่างที่มีสถิติงานประเภทนี้
   const candidates = useMemo(() => {
     return workers.map(w => ({ ...w, stats: getWorkerStats(w, workType) })).filter(c => c.stats);
   }, [workers, workType]);
 
-  // สรุปทีม
   const selected = workers.filter(w => selectedIds.includes(w.id));
   const teamStats = useMemo(() => calcTeamStats(selected, workType), [selected, workType]);
 
@@ -150,7 +177,7 @@ function TeamTab({ workers }) {
         <Text style={{ fontSize: 14, fontWeight: '600', color: C.text, marginBottom: 10 }}>เลือกประเภทงาน</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
           <View style={{ flexDirection: 'row', gap: 8 }}>
-            {WORK_TYPES.map(w => {
+            {workTypes.map(w => {
               const active = workType === w.id;
               return (
                 <TouchableOpacity key={w.id} onPress={() => { setWorkType(w.id); setSelectedIds([]); }}
@@ -169,9 +196,9 @@ function TeamTab({ workers }) {
         </ScrollView>
       </Card>
 
-      {/* รายชื่อช่าง — กดเลือกเข้าทีม */}
+      {/* รายชื่อช่าง */}
       <Text style={{ fontSize: 15, fontWeight: '700', color: C.text, marginTop: 16, marginBottom: 10 }}>
-        เลือกช่างเข้าทีม ({wt?.name})
+        เลือกช่างเข้าทีม ({wt?.name || '-'})
       </Text>
       {candidates.length > 0 ? candidates.map(c => {
         const active = selectedIds.includes(c.id);
@@ -181,15 +208,13 @@ function TeamTab({ workers }) {
             backgroundColor: active ? '#FEF3C7' : C.white,
           }}>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <Text style={{ fontSize: 28, marginRight: 12 }}>{c.avatar_uri ? '📷' : '👷'}</Text>
+              <Text style={{ fontSize: 28, marginRight: 12 }}>👷</Text>
               <View style={{ flex: 1 }}>
                 <Text style={{ fontSize: 15, fontWeight: '700', color: C.text }}>{c.name}</Text>
-                <Text style={{ fontSize: 12, color: C.textSec }}>{c.role}</Text>
+                <Text style={{ fontSize: 12, color: C.textSec }}>{c.role} • {c.stats.count} บันทึก</Text>
               </View>
               <View style={{ alignItems: 'flex-end', marginRight: 10 }}>
-                <Text style={{ fontSize: 18, fontWeight: '800', color: C.text }}>
-                  {c.stats.avgOutput.toFixed(1)}
-                </Text>
+                <Text style={{ fontSize: 18, fontWeight: '800', color: C.text }}>{c.stats.avgOutput.toFixed(1)}</Text>
                 <Text style={{ fontSize: 10, color: C.textLight }}>{wt?.unit}</Text>
               </View>
               <View style={{
@@ -202,37 +227,28 @@ function TeamTab({ workers }) {
             </View>
           </Card>
         );
-      }) : <Empty icon="people-outline" title="ไม่มีช่างที่มีสถิติงานนี้" />}
+      }) : <Empty icon="people-outline" title={`ไม่มีช่างที่มีสถิติ "${wt?.name || ''}"`} subtitle="ให้เพิ่มสถิติงานประเภทนี้ให้ช่างก่อน" />}
 
       {/* สรุปศักยภาพทีม */}
       {teamStats && (
         <Card style={{ marginTop: 16, backgroundColor: C.primary }}>
-          <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700', marginBottom: 14 }}>
-            สรุปศักยภาพทีม
-          </Text>
+          <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700', marginBottom: 14 }}>สรุปศักยภาพทีม</Text>
           <View style={{ flexDirection: 'row', gap: 10 }}>
             <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 10, padding: 14, alignItems: 'center' }}>
               <Text style={{ color: C.accent, fontSize: 24, fontWeight: '800' }}>{teamStats.count}</Text>
               <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11 }}>สมาชิก</Text>
             </View>
             <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 10, padding: 14, alignItems: 'center' }}>
-              <Text style={{ color: C.accent, fontSize: 24, fontWeight: '800' }}>
-                {teamStats.dailyCapacity.toFixed(1)}
-              </Text>
+              <Text style={{ color: C.accent, fontSize: 24, fontWeight: '800' }}>{teamStats.dailyCapacity.toFixed(1)}</Text>
               <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11 }}>{wt?.unit}</Text>
             </View>
             <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 10, padding: 14, alignItems: 'center' }}>
-              <Text style={{ color: qualityColor(teamStats.avgQuality), fontSize: 24, fontWeight: '800' }}>
-                {teamStats.avgQuality.toFixed(1)}%
-              </Text>
+              <Text style={{ color: qualityColor(teamStats.avgQuality), fontSize: 24, fontWeight: '800' }}>{teamStats.avgQuality.toFixed(1)}%</Text>
               <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11 }}>คุณภาพเฉลี่ย</Text>
             </View>
           </View>
 
-          {/* สัดส่วนแต่ละคน */}
-          <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, fontWeight: '600', marginTop: 16, marginBottom: 8 }}>
-            สัดส่วนผลผลิตแต่ละคน
-          </Text>
+          <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, fontWeight: '600', marginTop: 16, marginBottom: 8 }}>สัดส่วนผลผลิตแต่ละคน</Text>
           {teamStats.members.map(m => {
             const pct = (m.stats.avgOutput / teamStats.dailyCapacity) * 100;
             return (
@@ -256,11 +272,11 @@ function TeamTab({ workers }) {
 // ============================================================
 // TAB: ทำนายผลผลิต
 // ============================================================
-function PredictTab({ workers }) {
-  const [workType, setWorkType] = useState('rebar');
+function PredictTab({ workers, workTypes }) {
+  const [workType, setWorkType] = useState(workTypes[0]?.id || '');
   const [selectedIds, setSelectedIds] = useState([]);
   const [totalWork, setTotalWork] = useState('');
-  const wt = WORK_TYPES.find(w => w.id === workType);
+  const wt = workTypes.find(w => w.id === workType);
 
   const candidates = useMemo(() => {
     return workers.map(w => ({ ...w, stats: getWorkerStats(w, workType) })).filter(c => c.stats);
@@ -281,7 +297,7 @@ function PredictTab({ workers }) {
         <Text style={{ fontSize: 14, fontWeight: '600', color: C.text, marginBottom: 10 }}>ประเภทงาน</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
           <View style={{ flexDirection: 'row', gap: 8 }}>
-            {WORK_TYPES.map(w => {
+            {workTypes.map(w => {
               const active = workType === w.id;
               return (
                 <TouchableOpacity key={w.id} onPress={() => { setWorkType(w.id); setSelectedIds([]); }}
@@ -301,9 +317,7 @@ function PredictTab({ workers }) {
       </Card>
 
       {/* เลือกทีม */}
-      <Text style={{ fontSize: 15, fontWeight: '700', color: C.text, marginTop: 16, marginBottom: 10 }}>
-        เลือกทีม
-      </Text>
+      <Text style={{ fontSize: 15, fontWeight: '700', color: C.text, marginTop: 16, marginBottom: 10 }}>เลือกทีม</Text>
       {candidates.map(c => {
         const active = selectedIds.includes(c.id);
         return (
@@ -315,9 +329,7 @@ function PredictTab({ workers }) {
               <Text style={{ fontSize: 24, marginRight: 10 }}>👷</Text>
               <View style={{ flex: 1 }}>
                 <Text style={{ fontSize: 14, fontWeight: '700', color: C.text }}>{c.name}</Text>
-                <Text style={{ fontSize: 11, color: C.textSec }}>
-                  {c.stats.avgOutput.toFixed(1)} {wt?.unit}
-                </Text>
+                <Text style={{ fontSize: 11, color: C.textSec }}>{c.stats.avgOutput.toFixed(1)} {wt?.unit}</Text>
               </View>
               <View style={{
                 width: 28, height: 28, borderRadius: 7,
@@ -330,7 +342,7 @@ function PredictTab({ workers }) {
           </Card>
         );
       })}
-      {candidates.length === 0 && <Empty icon="people-outline" title={`ไม่มีช่างที่มีสถิติ ${wt?.name}`} />}
+      {candidates.length === 0 && <Empty icon="people-outline" title={`ไม่มีช่างที่มีสถิติ "${wt?.name || ''}"`} />}
 
       {/* ปริมาณงานทั้งหมด */}
       <Card style={{ marginTop: 16 }}>
@@ -342,41 +354,28 @@ function PredictTab({ workers }) {
           borderRadius: 10, borderWidth: 1, borderColor: C.border, paddingHorizontal: 12,
         }}>
           <Ionicons name="calculator-outline" size={18} color={C.textLight} style={{ marginRight: 8 }} />
-          <TextInput
-            value={totalWork}
-            onChangeText={setTotalWork}
-            placeholder="เช่น 5000"
-            keyboardType="numeric"
-            style={{ flex: 1, fontSize: 18, fontWeight: '700', color: C.text, paddingVertical: 14 }}
-          />
+          <TextInput value={totalWork} onChangeText={setTotalWork} placeholder="เช่น 5000" keyboardType="numeric"
+            style={{ flex: 1, fontSize: 18, fontWeight: '700', color: C.text, paddingVertical: 14 }} />
         </View>
       </Card>
 
       {/* ผลการทำนาย */}
       {teamStats && (
         <Card style={{ marginTop: 16, backgroundColor: C.primary }}>
-          <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13, fontWeight: '600', marginBottom: 14 }}>
-            ผลการทำนาย
-          </Text>
-
+          <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13, fontWeight: '600', marginBottom: 14 }}>ผลการทำนาย</Text>
           <View style={{ flexDirection: 'row', gap: 10 }}>
             <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 10, padding: 14 }}>
               <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>กำลังผลิตทีม/วัน</Text>
-              <Text style={{ fontSize: 24, fontWeight: '800', color: C.accent, marginTop: 4 }}>
-                {teamStats.dailyCapacity.toFixed(1)}
-              </Text>
+              <Text style={{ fontSize: 24, fontWeight: '800', color: C.accent, marginTop: 4 }}>{teamStats.dailyCapacity.toFixed(1)}</Text>
               <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>{wt?.unit}</Text>
             </View>
             <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 10, padding: 14 }}>
               <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>คุณภาพเฉลี่ย</Text>
-              <Text style={{ fontSize: 24, fontWeight: '800', color: qualityColor(teamStats.avgQuality), marginTop: 4 }}>
-                {teamStats.avgQuality.toFixed(1)}%
-              </Text>
+              <Text style={{ fontSize: 24, fontWeight: '800', color: qualityColor(teamStats.avgQuality), marginTop: 4 }}>{teamStats.avgQuality.toFixed(1)}%</Text>
               <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>ของทีม</Text>
             </View>
           </View>
 
-          {/* จำนวนวัน */}
           {daysNeeded && (
             <View style={{
               marginTop: 16, padding: 20, alignItems: 'center',
@@ -394,9 +393,7 @@ function PredictTab({ workers }) {
           {!tw && (
             <View style={{ marginTop: 14, alignItems: 'center', paddingVertical: 16 }}>
               <Ionicons name="arrow-up-outline" size={24} color="rgba(255,255,255,0.3)" />
-              <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13, marginTop: 6 }}>
-                กรอกปริมาณงานด้านบนเพื่อทำนายจำนวนวัน
-              </Text>
+              <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13, marginTop: 6 }}>กรอกปริมาณงานด้านบนเพื่อทำนายจำนวนวัน</Text>
             </View>
           )}
         </Card>
