@@ -38,7 +38,7 @@ const ROLES = [
   { key: 'อื่นๆ', icon: 'ellipsis-horizontal-circle-outline', color: '#9CA3AF' },
 ];
 
-// ประเภทงาน (สำหรับบันทึกสถิติ) — ค่าที่เก็บใน DB คือ key ภาษาไทย
+// ประเภทงาน (สำหรับบันทึกสถิติ)
 const WORK_TYPES = [
   { key: 'ผูกเหล็ก', icon: 'construct-outline', color: '#3B82F6' },
   { key: 'เทปูน', icon: 'cube-outline', color: '#8B5CF6' },
@@ -189,7 +189,6 @@ export default function WorkerStatsScreen({ navigation }) {
     );
   };
 
-  // ── Ranked workers ──
   const ranked = [...workers].map(w => ({ ...w, score: getScore(w) })).sort((a, b) => b.score - a.score);
 
   // ============================================================
@@ -218,14 +217,14 @@ export default function WorkerStatsScreen({ navigation }) {
             </View>
             <View style={{ marginBottom: 6 }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 }}>
-                <Text style={{ fontSize: 12, color: C.textSec }}>ผลผลิต</Text>
+                <Text style={{ fontSize: 12, color: C.textSec }}>ผลผลิตเฉลี่ย</Text>
                 <Text style={{ fontSize: 12, fontWeight: '700', color: C.text }}>{avgOut}%</Text>
               </View>
               <ProgressBar progress={avgOut} height={7} color="#3B82F6" />
             </View>
             <View style={{ marginBottom: 6 }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 }}>
-                <Text style={{ fontSize: 12, color: C.textSec }}>คุณภาพ</Text>
+                <Text style={{ fontSize: 12, color: C.textSec }}>คุณภาพเฉลี่ย</Text>
                 <Text style={{ fontSize: 12, fontWeight: '700', color: C.text }}>{avgQ}%</Text>
               </View>
               <ProgressBar progress={avgQ} height={7} color="#10B981" />
@@ -286,33 +285,6 @@ export default function WorkerStatsScreen({ navigation }) {
           </Card>
         );
       }) : <Empty icon="trophy-outline" title="ยังไม่มีข้อมูล" />}
-
-      {/* สรุปตามประเภทงาน */}
-      {workers.length > 0 && (
-        <>
-          <Text style={{ fontSize: 17, fontWeight: '700', color: C.text, marginTop: 20, marginBottom: 12 }}>สรุปตามประเภทงาน</Text>
-          {WORK_TYPES.map(wt => {
-            // ใช้ r.work_type (ชื่อจาก DB)
-            const recs = workers.flatMap(w => w.records).filter(r => r.work_type === wt.key);
-            if (!recs.length) return null;
-            const avg = calcAvg(recs, 'output');
-            return (
-              <Card key={wt.key}>
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <View style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: wt.color + '15', alignItems: 'center', justifyContent: 'center' }}>
-                    <Ionicons name={wt.icon} size={20} color={wt.color} />
-                  </View>
-                  <View style={{ flex: 1, marginLeft: 12 }}>
-                    <Text style={{ fontSize: 14, fontWeight: '600', color: C.text }}>{wt.key}</Text>
-                    <Text style={{ fontSize: 12, color: C.textSec }}>{recs.length} รายการ • เฉลี่ย {avg}%</Text>
-                  </View>
-                  <ProgressBar progress={avg} height={6} color={wt.color} style={{ width: 80 }} />
-                </View>
-              </Card>
-            );
-          })}
-        </>
-      )}
     </View>
   );
 
@@ -328,7 +300,7 @@ export default function WorkerStatsScreen({ navigation }) {
             <TouchableOpacity onPress={() => setShowAddWorker(false)}><Ionicons name="close" size={24} color={C.textSec} /></TouchableOpacity>
           </View>
           <ScrollView showsVerticalScrollIndicator={false}>
-            {/* รูปถ่าย */}
+            {/* ... โค้ดเพิ่มช่าง ... */}
             <Text style={s.label}>รูปถ่ายช่าง</Text>
             <TouchableOpacity onPress={showImageOptions} style={s.photoArea}>
               {workerForm.avatarUri ? (
@@ -349,7 +321,6 @@ export default function WorkerStatsScreen({ navigation }) {
 
             <Input label="ชื่อ-นามสกุล *" value={workerForm.name} onChangeText={v => setWorkerForm(p => ({ ...p, name: v }))} placeholder="เช่น สมชาย ใจดี" icon="person-outline" />
 
-            {/* ตำแหน่ง picker */}
             <Text style={s.label}>ตำแหน่งงาน *</Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
               {ROLES.map(r => {
@@ -415,7 +386,7 @@ export default function WorkerStatsScreen({ navigation }) {
   );
 
   // ============================================================
-  // MODAL: รายละเอียดช่าง
+  // MODAL: รายละเอียดช่าง (🌟 จุดที่มีการแก้ไขดึงข้อความสวยๆ มาใช้)
   // ============================================================
   const renderDetailModal = () => {
     if (!selectedWorker) return null;
@@ -424,7 +395,6 @@ export default function WorkerStatsScreen({ navigation }) {
     const score = getScore(selectedWorker);
     const grade = getGrade(score);
 
-    // จัดกลุ่มตาม work_type (field จาก DB)
     const byType = {};
     selectedWorker.records.forEach(r => {
       const t = r.work_type || 'อื่นๆ';
@@ -471,36 +441,20 @@ export default function WorkerStatsScreen({ navigation }) {
                 ))}
               </Card>
 
-              {Object.keys(byType).length > 0 && (
-                <Card>
-                  <Text style={{ fontSize: 14, fontWeight: '600', color: C.text, marginBottom: 12 }}>สถิติแยกประเภทงาน</Text>
-                  {Object.entries(byType).map(([type, recs]) => {
-                    const wt = WORK_TYPES.find(w => w.key === type) || { icon: 'ellipsis-horizontal-outline', color: '#6B7280' };
-                    return (
-                      <View key={type} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.border }}>
-                        <Ionicons name={wt.icon} size={18} color={wt.color} style={{ width: 28 }} />
-                        <View style={{ flex: 1 }}>
-                          <Text style={{ fontSize: 13, fontWeight: '600', color: C.text }}>{type}</Text>
-                          <Text style={{ fontSize: 11, color: C.textLight }}>{recs.length} รายการ</Text>
-                        </View>
-                        <Text style={{ fontSize: 14, fontWeight: '700', color: wt.color }}>{calcAvg(recs, 'output')}%</Text>
-                      </View>
-                    );
-                  })}
-                </Card>
-              )}
-
+              {/* 🌟 จุดที่แก้ไข: ไม่มีการใช้ Array .map() แล้ว ใช้ตัวแปร records_text แทนเลย */}
               <Card>
                 <Text style={{ fontSize: 14, fontWeight: '600', color: C.text, marginBottom: 12 }}>ประวัติล่าสุด</Text>
-                {selectedWorker.records.length > 0 ? selectedWorker.records.slice(0, 10).map((rec, i) => (
-                  <View key={rec.id || i} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: i < 9 ? 1 : 0, borderBottomColor: C.border }}>
-                    <Text style={{ fontSize: 12, color: C.textLight, width: 80 }}>{rec.date || '-'}</Text>
-                    <Text style={{ flex: 1, fontSize: 13, color: C.text }}>{rec.work_type}</Text>
-                    <Badge label={`${rec.output}`} color="#3B82F6" bg="#DBEAFE" />
-                    <View style={{ width: 6 }} />
-                    <Badge label={`${rec.quality}`} color="#10B981" bg="#D1FAE5" />
-                  </View>
-                )) : <Text style={{ fontSize: 13, color: C.textLight, textAlign: 'center', paddingVertical: 16 }}>ยังไม่มีข้อมูล</Text>}
+                
+                {selectedWorker.records_text && selectedWorker.records_text !== 'ยังไม่มีประวัติการทำงาน' ? (
+                  <Text style={{ fontSize: 13, color: C.textSec, lineHeight: 24 }}>
+                    {selectedWorker.records_text}
+                  </Text>
+                ) : (
+                  <Text style={{ fontSize: 13, color: C.textLight, textAlign: 'center', paddingVertical: 16 }}>
+                    ยังไม่มีข้อมูล
+                  </Text>
+                )}
+
               </Card>
 
               <Button title="เพิ่มสถิติ" icon="add-circle-outline" onPress={() => {
