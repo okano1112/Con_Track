@@ -26,10 +26,13 @@ async function migrate(db) {
   if (currentVersion < 2) {
     await migrateV2(db);
   }
+  if (currentVersion < 3) {
+    await migrateV3(db);
+  }
 }
 
 // ============================================================
-// V1 — ตารางหลัก (users, projects, tasks, documents, etc.)
+// V1 — ตารางหลัก
 // ============================================================
 async function migrateV1(db) {
   await db.execAsync(`
@@ -147,14 +150,11 @@ async function migrateV1(db) {
 
     PRAGMA user_version = 1;
   `);
-
   console.log('✅ Database migrated to v1');
 }
 
 // ============================================================
-// V2 — ตารางช่าง (workers, worker_records)
-// แยกออกมาเป็น migration ใหม่เพื่อให้ DB ที่เคยรัน v1 แล้ว
-// สามารถเพิ่มตารางได้โดยไม่ต้อง reset
+// V2 — ตารางช่างเบื้องต้น
 // ============================================================
 async function migrateV2(db) {
   await db.execAsync(`
@@ -176,11 +176,32 @@ async function migrateV2(db) {
     );
 
     CREATE INDEX IF NOT EXISTS idx_worker_records_worker ON worker_records(worker_id);
-
     PRAGMA user_version = 2;
   `);
+  console.log('✅ Database migrated to v2');
+}
 
-  console.log('✅ Database migrated to v2 (workers tables)');
+// ============================================================
+// V3 — เพิ่มคอลัมน์ age, phone, avatar_uri ในตาราง workers
+// ============================================================
+async function migrateV3(db) {
+  const columnsToAdd = [
+    { name: 'age', definition: 'INTEGER DEFAULT 0' },
+    { name: 'phone', definition: "TEXT DEFAULT ''" },
+    { name: 'avatar_uri', definition: "TEXT DEFAULT ''" },
+  ];
+
+  for (const col of columnsToAdd) {
+    try {
+      await db.execAsync(`ALTER TABLE workers ADD COLUMN ${col.name} ${col.definition};`);
+    } catch (e) {
+      // คอลัมน์มีอยู่แล้ว — ข้ามไป
+      console.log(`Column ${col.name} may already exist:`, e.message);
+    }
+  }
+
+  await db.execAsync('PRAGMA user_version = 3;');
+  console.log('✅ Database migrated to v3 (worker profile columns)');
 }
 
 export async function getUnsyncedRecords(tableName) {
@@ -212,5 +233,5 @@ export async function resetDatabase() {
     PRAGMA user_version = 0;
   `);
   _db = null;
-  await getDatabase(); 
+  await getDatabase();
 }
