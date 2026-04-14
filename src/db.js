@@ -1,3 +1,13 @@
+// src/db.js
+// ============================================================
+// ฐานข้อมูลทั้งหมดรวมไว้ไฟล์เดียว
+// ถ้าจะเพิ่มตาราง → เพิ่ม CREATE TABLE ใน initDB()
+// ถ้าจะเพิ่มฟังก์ชัน → เพิ่ม export function ด้านล่าง
+//
+// 💡 ทดสอบ SQL ก่อนได้ใน DB Browser for SQLite (ฟรี)
+//    SQL เหมือนกันทุกประการ แค่เปลี่ยนชื่อฟังก์ชันเรียก
+// ============================================================
+
 import * as SQLite from 'expo-sqlite';
 
 let _db = null;
@@ -12,8 +22,8 @@ export async function getDB() {
 }
 
 async function initDB(db) {
-  await db.execAsync(
-    `CREATE TABLE IF NOT EXISTS users (
+  await db.execAsync(`
+    CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT NOT NULL UNIQUE,
       password TEXT NOT NULL,
@@ -24,6 +34,7 @@ async function initDB(db) {
       role TEXT DEFAULT 'member',
       created_at TEXT DEFAULT (datetime('now','localtime'))
     );
+
     CREATE TABLE IF NOT EXISTS projects (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
@@ -106,7 +117,7 @@ export async function register(username, password, fullName, position, departmen
   const exists = await db.getFirstAsync('SELECT id FROM users WHERE username = ?', [username.toLowerCase()]);
   if (exists) throw new Error('ชื่อผู้ใช้นี้มีอยู่แล้ว');
   const r = await db.runAsync(
-    'INSERT INTO users (username, password, full_name, position, department, phone) VALUES (?,?,?,?,?,?)',
+    'INSERT INTO users (username,password,full_name,position,department,phone) VALUES (?,?,?,?,?,?)',
     [username.toLowerCase(), password, fullName, position || '', department || '', phone || '']
   );
   return { id: r.lastInsertRowId, username, fullName };
@@ -114,40 +125,34 @@ export async function register(username, password, fullName, position, departmen
 
 export async function login(username, password) {
   const db = await getDB();
-  const user = await db.getFirstAsync(
-    'SELECT * FROM users WHERE username = ? AND password = ?',
-    [username.toLowerCase(), password]
-  );
+  const user = await db.getFirstAsync('SELECT * FROM users WHERE username=? AND password=?', [username.toLowerCase(), password]);
   if (!user) throw new Error('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง');
   return user;
 }
 
 export async function getUserById(id) {
   const db = await getDB();
-  return await db.getFirstAsync('SELECT * FROM users WHERE id = ?', [id]);
+  return await db.getFirstAsync('SELECT * FROM users WHERE id=?', [id]);
 }
 
 export async function updateProfile(userId, fullName, position, department, phone) {
   const db = await getDB();
-  await db.runAsync(
-    'UPDATE users SET full_name=?, position=?, department=?, phone=? WHERE id=?',
-    [fullName, position, department, phone, userId]
-  );
+  await db.runAsync('UPDATE users SET full_name=?,position=?,department=?,phone=? WHERE id=?', [fullName, position, department, phone, userId]);
 }
 
 export async function getAllUsers() {
   const db = await getDB();
-  return await db.getAllAsync('SELECT id, username, full_name, position FROM users ORDER BY full_name');
+  return await db.getAllAsync('SELECT id,username,full_name,position FROM users ORDER BY full_name');
 }
 
 // ============================================================
 // PROJECTS
 // ============================================================
-export async function createProject(name, description, location, budget, startDate, endDate, status, managerId) {
+export async function createProject(name, desc, location, budget, startDate, endDate, status, managerId) {
   const db = await getDB();
   const r = await db.runAsync(
     'INSERT INTO projects (name,description,location,budget,start_date,end_date,status,manager_id) VALUES (?,?,?,?,?,?,?,?)',
-    [name, description || '', location || '', budget || 0, startDate || '', endDate || '', status || 'planning', managerId || null]
+    [name, desc || '', location || '', budget || 0, startDate || '', endDate || '', status || 'planning', managerId || null]
   );
   return r.lastInsertRowId;
 }
@@ -155,10 +160,10 @@ export async function createProject(name, description, location, budget, startDa
 export async function getAllProjects(statusFilter) {
   const db = await getDB();
   let q = `SELECT p.*, u.full_name as manager_name,
-    (SELECT COUNT(*) FROM tasks WHERE project_id = p.id) as task_count,
-    (SELECT COUNT(*) FROM tasks WHERE project_id = p.id AND status='done') as done_count,
-    (SELECT COUNT(*) FROM documents WHERE project_id = p.id) as doc_count
-    FROM projects p LEFT JOIN users u ON p.manager_id = u.id`;
+    (SELECT COUNT(*) FROM tasks WHERE project_id=p.id) as task_count,
+    (SELECT COUNT(*) FROM tasks WHERE project_id=p.id AND status='done') as done_count,
+    (SELECT COUNT(*) FROM documents WHERE project_id=p.id) as doc_count
+    FROM projects p LEFT JOIN users u ON p.manager_id=u.id`;
   if (statusFilter && statusFilter !== 'all') q += ` WHERE p.status='${statusFilter}'`;
   q += ' ORDER BY p.created_at DESC';
   return await db.getAllAsync(q);
@@ -166,25 +171,11 @@ export async function getAllProjects(statusFilter) {
 
 export async function getProjectById(id) {
   const db = await getDB();
-  const project = await db.getFirstAsync(
-    'SELECT p.*, u.full_name as manager_name FROM projects p LEFT JOIN users u ON p.manager_id=u.id WHERE p.id=?', [id]
-  );
+  const project = await db.getFirstAsync('SELECT p.*,u.full_name as manager_name FROM projects p LEFT JOIN users u ON p.manager_id=u.id WHERE p.id=?', [id]);
   if (!project) throw new Error('ไม่พบโครงการ');
-  const tasks = await db.getAllAsync(
-    'SELECT t.*, u.full_name as assignee_name FROM tasks t LEFT JOIN users u ON t.assigned_to=u.id WHERE t.project_id=? ORDER BY t.created_at DESC', [id]
-  );
-  const documents = await db.getAllAsync(
-    'SELECT * FROM documents WHERE project_id=? ORDER BY created_at DESC', [id]
-  );
+  const tasks = await db.getAllAsync('SELECT t.*,u.full_name as assignee_name FROM tasks t LEFT JOIN users u ON t.assigned_to=u.id WHERE t.project_id=? ORDER BY t.created_at DESC', [id]);
+  const documents = await db.getAllAsync('SELECT * FROM documents WHERE project_id=? ORDER BY created_at DESC', [id]);
   return { ...project, tasks, documents };
-}
-
-export async function updateProject(id, name, description, location, budget, startDate, endDate, status, progress) {
-  const db = await getDB();
-  await db.runAsync(
-    'UPDATE projects SET name=?,description=?,location=?,budget=?,start_date=?,end_date=?,status=?,progress=? WHERE id=?',
-    [name, description, location, budget, startDate, endDate, status, progress, id]
-  );
 }
 
 export async function deleteProject(id) {
@@ -197,25 +188,21 @@ export async function getDashboardStats() {
   const p = await db.getFirstAsync(`SELECT COUNT(*) as total,
     SUM(CASE WHEN status='active' THEN 1 ELSE 0 END) as active,
     SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) as completed,
-    SUM(CASE WHEN status='planning' THEN 1 ELSE 0 END) as planning
-    FROM projects`);
+    SUM(CASE WHEN status='planning' THEN 1 ELSE 0 END) as planning FROM projects`);
   const t = await db.getFirstAsync(`SELECT COUNT(*) as total,
-    SUM(CASE WHEN priority='urgent' AND status!='done' THEN 1 ELSE 0 END) as urgent
-    FROM tasks`);
-  const recent = await db.getAllAsync(
-    'SELECT p.*, u.full_name as manager_name FROM projects p LEFT JOIN users u ON p.manager_id=u.id ORDER BY p.created_at DESC LIMIT 5'
-  );
+    SUM(CASE WHEN priority='urgent' AND status!='done' THEN 1 ELSE 0 END) as urgent FROM tasks`);
+  const recent = await db.getAllAsync('SELECT p.*,u.full_name as manager_name FROM projects p LEFT JOIN users u ON p.manager_id=u.id ORDER BY p.created_at DESC LIMIT 5');
   return { projects: p, tasks: t, recentProjects: recent };
 }
 
 // ============================================================
 // TASKS
 // ============================================================
-export async function createTask(projectId, assignedTo, title, description, priority, status, dueDate) {
+export async function createTask(projectId, assignedTo, title, desc, priority, status, dueDate) {
   const db = await getDB();
   return await db.runAsync(
     'INSERT INTO tasks (project_id,assigned_to,title,description,priority,status,due_date) VALUES (?,?,?,?,?,?,?)',
-    [projectId, assignedTo || null, title, description || '', priority || 'medium', status || 'todo', dueDate || '']
+    [projectId, assignedTo || null, title, desc || '', priority || 'medium', status || 'todo', dueDate || '']
   );
 }
 
@@ -223,8 +210,7 @@ export async function toggleTask(taskId) {
   const db = await getDB();
   const task = await db.getFirstAsync('SELECT status FROM tasks WHERE id=?', [taskId]);
   if (!task) return;
-  const next = task.status === 'done' ? 'todo' : 'done';
-  await db.runAsync('UPDATE tasks SET status=? WHERE id=?', [next, taskId]);
+  await db.runAsync('UPDATE tasks SET status=? WHERE id=?', [task.status === 'done' ? 'todo' : 'done', taskId]);
 }
 
 export async function deleteTask(id) {
@@ -245,7 +231,7 @@ export async function createDocument(projectId, uploadedBy, name, category, note
 
 export async function getAllDocuments(categoryFilter) {
   const db = await getDB();
-  let q = `SELECT d.*, p.name as project_name FROM documents d LEFT JOIN projects p ON d.project_id=p.id`;
+  let q = 'SELECT d.*,p.name as project_name FROM documents d LEFT JOIN projects p ON d.project_id=p.id';
   if (categoryFilter && categoryFilter !== 'all') q += ` WHERE d.category='${categoryFilter}'`;
   q += ' ORDER BY d.created_at DESC';
   return await db.getAllAsync(q);
@@ -257,33 +243,19 @@ export async function deleteDocument(id) {
 }
 
 // ============================================================
-// WORKERS
-// รับได้ทั้ง object และ parameter แยก
+// WORKERS — insertWorker รับ object เท่านั้น (ง่ายกว่า)
+// เรียก: insertWorker({ name, role, age, phone, avatarUri })
 // ============================================================
-export async function insertWorker(nameOrObj, role, age, phone, avatarUri) {
+export async function insertWorker({ name, role, age, phone, avatarUri }) {
   const db = await getDB();
-  // รองรับ 2 แบบ: insertWorker({name, role, ...}) หรือ insertWorker(name, role, age, phone, uri)
-  let n, ro, ag, ph, av;
-  if (typeof nameOrObj === 'object' && nameOrObj !== null) {
-    n = nameOrObj.name;
-    ro = nameOrObj.role || '';
-    ag = nameOrObj.age || 0;
-    ph = nameOrObj.phone || '';
-    av = nameOrObj.avatarUri || nameOrObj.avatar_uri || '';
-  } else {
-    n = nameOrObj;
-    ro = role || '';
-    ag = age || 0;
-    ph = phone || '';
-    av = avatarUri || '';
-  }
   const r = await db.runAsync(
     'INSERT INTO workers (name,role,age,phone,avatar_uri) VALUES (?,?,?,?,?)',
-    [n, ro, ag, ph, av]
+    [name, role || '', age || 0, phone || '', avatarUri || '']
   );
   return r.lastInsertRowId;
 }
 
+// field ที่ DB คืนมา: work_type (underscore) ไม่ใช่ workType (camelCase)
 export async function getWorkersWithRecords() {
   const db = await getDB();
   const rows = await db.getAllAsync(`
@@ -294,15 +266,26 @@ export async function getWorkersWithRecords() {
   const map = {};
   rows.forEach(row => {
     if (!map[row.id]) {
-      map[row.id] = { id: row.id, name: row.name, role: row.role, age: row.age, phone: row.phone, avatar_uri: row.avatar_uri, records: [] };
+      map[row.id] = {
+        id: row.id, name: row.name, role: row.role,
+        age: row.age, phone: row.phone, avatar_uri: row.avatar_uri,
+        records: [],
+      };
     }
     if (row.rid) {
-      map[row.id].records.push({ id: row.rid, work_type: row.work_type, date: row.date, output: row.output, quality: row.quality });
+      map[row.id].records.push({
+        id: row.rid,
+        work_type: row.work_type,  // ← ชื่อนี้ใช้ทั้งโปรเจกต์
+        date: row.date,
+        output: row.output,
+        quality: row.quality,
+      });
     }
   });
   return Object.values(map);
 }
 
+// work_type ที่บันทึก = ภาษาไทย เช่น 'ผูกเหล็ก', 'ก่ออิฐ'
 export async function insertWorkerRecord(workerId, workType, date, output, quality) {
   const db = await getDB();
   return await db.runAsync(
@@ -317,7 +300,7 @@ export async function deleteWorker(id) {
 }
 
 // ============================================================
-// RESET (สำหรับ dev เท่านั้น)
+// RESET (สำหรับ dev — ลบข้อมูลทั้งหมด สร้างใหม่)
 // ============================================================
 export async function resetDB() {
   const db = await getDB();
