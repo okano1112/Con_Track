@@ -109,6 +109,7 @@ function TeamTab({ workers }) {
   const [workType, setWorkType] = useState('ผูกเหล็ก');
   const [selectedIds, setSelectedIds] = useState([]);
   const [isRaining, setIsRaining] = useState(false);
+  const [otHours, setOtHours] = useState(0);
 
   const wt = WORK_TYPES.find(w => w.id === workType) || WORK_TYPES[0];
   
@@ -117,7 +118,16 @@ function TeamTab({ workers }) {
   })).sort((a, b) => b.aiScore - a.aiScore);
 
   const team = candidates.filter(w => selectedIds.includes(w.id));
-  const teamOutput = team.reduce((sum, w) => sum + getEffectiveOutput(w, workType), 0);
+  
+  const baseTeamOutput = team.reduce((sum, w) => sum + getEffectiveOutput(w, workType), 0);
+  const extraOTOutput = (baseTeamOutput / 8) * otHours; 
+  const teamOutput = baseTeamOutput + extraOTOutput;
+
+  // 🌟 คำนวณค่าแรงรายวัน
+  const baseWage = team.reduce((sum, w) => sum + (parseFloat(w.daily_wage) || 300), 0);
+  const otWage = (baseWage / 8) * 1.5 * otHours; // เรท OT 1.5 เท่า
+  const totalDailyWage = baseWage + otWage;
+
   const teamQuality = calculateTeamQuality(team, workType);
 
   const minExpected = Math.round(teamOutput * 0.95);
@@ -138,7 +148,7 @@ function TeamTab({ workers }) {
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
           <View style={{ flexDirection: 'row', gap: 8 }}>
             {WORK_TYPES.map(w => (
-              <TouchableOpacity key={w.id} onPress={() => { setWorkType(w.id); setSelectedIds([]); setIsRaining(false); }}
+              <TouchableOpacity key={w.id} onPress={() => { setWorkType(w.id); setSelectedIds([]); setIsRaining(false); setOtHours(0); }}
                 style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: workType === w.id ? C.accent : '#F3F4F6', borderWidth: workType === w.id ? 0 : 1, borderColor: C.border }}>
                 <Ionicons name={w.icon} size={14} color={workType === w.id ? '#fff' : C.textSec} />
                 <Text style={{ color: workType === w.id ? '#fff' : C.textSec, fontWeight: '600', fontSize: 12 }}>{w.id}</Text>
@@ -150,7 +160,6 @@ function TeamTab({ workers }) {
 
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 16, marginBottom: 10 }}>
         <Text style={{ fontSize: 15, fontWeight: '700', color: C.text }}>2. เลือกช่างเข้าทีม</Text>
-        
         {OUTDOOR_JOBS.includes(workType) && (
           <TouchableOpacity onPress={() => setIsRaining(!isRaining)} style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: isRaining ? '#FEE2E2' : '#F3F4F6', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, borderWidth: 1, borderColor: isRaining ? '#FCA5A5' : '#D1D5DB' }}>
             <Ionicons name="rainy" size={16} color={isRaining ? '#EF4444' : '#6B7280'} />
@@ -186,9 +195,7 @@ function TeamTab({ workers }) {
         return (
           <Card key={worker.id} onPress={() => toggle(worker.id)} style={{ borderWidth: 2, borderColor: isSelected ? C.accent : 'transparent', backgroundColor: isSelected ? '#FEF3C7' : C.white }}>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
-                <Text style={{ fontSize: 22 }}>👷</Text>
-              </View>
+              <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}><Text style={{ fontSize: 22 }}>👷</Text></View>
               <View style={{ flex: 1 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                   <Text style={{ fontSize: 15, fontWeight: '700', color: C.text }}>{worker.name}</Text>
@@ -206,13 +213,36 @@ function TeamTab({ workers }) {
                 <Text style={{ fontSize: 18, fontWeight: '800', color: C.text }}>{effectiveOutput.toFixed(1)}</Text>
                 <Text style={{ fontSize: 10, color: C.textLight }}>{wt.unit}</Text>
               </View>
-              <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: isSelected ? C.accent : '#E5E7EB', alignItems: 'center', justifyContent: 'center' }}>
-                <Ionicons name={isSelected ? 'checkmark' : 'add'} size={18} color="#fff" />
-              </View>
+              <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: isSelected ? C.accent : '#E5E7EB', alignItems: 'center', justifyContent: 'center' }}><Ionicons name={isSelected ? 'checkmark' : 'add'} size={18} color="#fff" /></View>
             </View>
           </Card>
         );
       }) : <Empty icon="people-outline" title="ไม่มีข้อมูลพนักงาน" />}
+
+      {team.length > 0 && (
+        <Card style={{ marginTop: 16 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
+            <Ionicons name="time" size={20} color="#F59E0B" style={{ marginRight: 8 }} />
+            <Text style={{ fontSize: 15, fontWeight: '700', color: C.text }}>จำลองการเพิ่มโอที (OT)</Text>
+          </View>
+          <Text style={{ fontSize: 12, color: C.textSec, marginBottom: 10 }}>เลือกจำนวนชั่วโมง OT เพื่อดูปริมาณงานที่จะได้เพิ่มขึ้นจากช่างในทีม</Text>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            {[0, 1, 2, 3, 4].map(h => (
+              <TouchableOpacity key={h} onPress={() => setOtHours(h)}
+                style={{ flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 8, backgroundColor: otHours === h ? '#F59E0B' : '#F3F4F6', borderWidth: 1, borderColor: otHours === h ? '#D97706' : '#D1D5DB' }}>
+                <Text style={{ fontWeight: 'bold', fontSize: 13, color: otHours === h ? '#fff' : C.textSec }}>{h > 0 ? `+${h} ชม.` : 'ปกติ'}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          {otHours > 0 && (
+            <View style={{ marginTop: 12, backgroundColor: '#FEF3C7', padding: 10, borderRadius: 8, alignItems: 'center' }}>
+               <Text style={{ fontSize: 13, color: '#B45309' }}>
+                 📈 จะได้ผลผลิตเพิ่มอีกประมาณ <Text style={{fontWeight: 'bold', fontSize: 15}}>+{extraOTOutput.toFixed(1)}</Text> {wt.unit.replace('/วัน', '')}
+               </Text>
+            </View>
+          )}
+        </Card>
+      )}
 
       {team.length > 0 && (
         <Card style={{ marginTop: 16, backgroundColor: C.primary }}>
@@ -224,7 +254,7 @@ function TeamTab({ workers }) {
             </View>
             <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 10, padding: 14, alignItems: 'center' }}>
               <Text style={{ color: C.accent, fontSize: 24, fontWeight: '800' }}>{teamOutput.toFixed(1)}</Text>
-              <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11 }}>{wt.unit}</Text>
+              <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11 }}>{wt.unit} {otHours > 0 ? '(รวม OT)' : ''}</Text>
             </View>
             <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 10, padding: 14, alignItems: 'center' }}>
               <Text style={{ color: qualityColor(teamQuality), fontSize: 24, fontWeight: '800' }}>{teamQuality > 0 ? `${teamQuality.toFixed(1)}%` : '-'}</Text>
@@ -242,9 +272,30 @@ function TeamTab({ workers }) {
             </View>
           </View>
 
-          <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, fontWeight: '600', marginTop: 16, marginBottom: 8 }}>สัดส่วนผลผลิตแต่ละคน (Team Capability Graph)</Text>
+          {/* 🌟 แสดงส่วนสรุปต้นทุนค่าแรง */}
+          <View style={{ backgroundColor: '#ECFCCB', padding: 12, borderRadius: 10, marginTop: 14 }}>
+            <Text style={{ fontSize: 14, fontWeight: 'bold', color: '#4D7C0F', marginBottom: 5 }}>💰 ประมาณการต้นทุนค่าแรงต่อวัน</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+              <Text style={{ fontSize: 12, color: '#3F6212' }}>ค่าแรงปกติ ({team.length} คน):</Text>
+              <Text style={{ fontSize: 12, fontWeight: 'bold', color: '#3F6212' }}>{baseWage.toLocaleString()} บาท</Text>
+            </View>
+            {otHours > 0 && (
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 2 }}>
+                <Text style={{ fontSize: 12, color: '#3F6212' }}>ค่าโอที (+{otHours} ชม. เรท 1.5):</Text>
+                <Text style={{ fontSize: 12, fontWeight: 'bold', color: '#3F6212' }}>{otWage.toLocaleString()} บาท</Text>
+              </View>
+            )}
+            <View style={{ height: 1, backgroundColor: '#84CC16', marginVertical: 6 }} />
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+              <Text style={{ fontSize: 14, fontWeight: 'bold', color: '#166534' }}>รวมจ่ายทั้งสิ้นต่อวัน:</Text>
+              <Text style={{ fontSize: 14, fontWeight: 'bold', color: '#166534' }}>{totalDailyWage.toLocaleString()} บาท/วัน</Text>
+            </View>
+          </View>
+
+          <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, fontWeight: '600', marginTop: 16, marginBottom: 8 }}>สัดส่วนผลผลิตแต่ละคน (รวมโอทีแล้ว)</Text>
           {team.map(w => {
-            const outputVal = getEffectiveOutput(w, workType);
+            const baseOutput = getEffectiveOutput(w, workType);
+            const outputVal = baseOutput + ((baseOutput / 8) * otHours); 
             const pct = teamOutput > 0 ? (outputVal / teamOutput) * 100 : 0;
             return (
               <View key={w.id} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
@@ -271,6 +322,7 @@ function PredictTab({ workers, projects }) {
   const [totalWork, setTotalWork] = useState('');
   const [targetDays, setTargetDays] = useState(''); 
   const [selectedProjectId, setSelectedProjectId] = useState(null);
+  const [otHours, setOtHours] = useState(0);
 
   const wt = WORK_TYPES.find(w => w.id === workType) || WORK_TYPES[0];
   
@@ -279,7 +331,16 @@ function PredictTab({ workers, projects }) {
   })).sort((a, b) => b.aiScore - a.aiScore);
 
   const team = candidates.filter(w => selectedIds.includes(w.id));
-  const teamOutput = team.reduce((sum, w) => sum + getEffectiveOutput(w, workType), 0);
+  
+  const baseTeamOutput = team.reduce((sum, w) => sum + getEffectiveOutput(w, workType), 0);
+  const extraOTOutput = (baseTeamOutput / 8) * otHours; 
+  const teamOutput = baseTeamOutput + extraOTOutput;
+
+  // 🌟 คำนวณค่าแรงรายวัน สำหรับแท็บทำนาย
+  const baseWage = team.reduce((sum, w) => sum + (parseFloat(w.daily_wage) || 300), 0);
+  const otWage = (baseWage / 8) * 1.5 * otHours; 
+  const totalDailyWage = baseWage + otWage;
+
   const teamQuality = calculateTeamQuality(team, workType);
 
   const tw = parseFloat(totalWork) || 0;
@@ -330,7 +391,7 @@ function PredictTab({ workers, projects }) {
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
           <View style={{ flexDirection: 'row', gap: 8 }}>
             {WORK_TYPES.map(w => (
-              <TouchableOpacity key={w.id} onPress={() => { setWorkType(w.id); setSelectedIds([]); }}
+              <TouchableOpacity key={w.id} onPress={() => { setWorkType(w.id); setSelectedIds([]); setOtHours(0); }}
                 style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: workType === w.id ? C.accent : '#F3F4F6', borderWidth: workType === w.id ? 0 : 1, borderColor: C.border }}>
                 <Ionicons name={w.icon} size={14} color={workType === w.id ? '#fff' : C.textSec} />
                 <Text style={{ color: workType === w.id ? '#fff' : C.textSec, fontWeight: '600', fontSize: 12 }}>{w.id}</Text>
@@ -384,11 +445,24 @@ function PredictTab({ workers, projects }) {
         </View>
       </Card>
 
+      {team.length > 0 && totalWork !== '' && (
+        <Card style={{ marginTop: 16 }}>
+          <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, marginBottom: 10 }}>🕒 จำลองการเร่งงานด้วย OT</Text>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            {[0, 1, 2, 3, 4].map(h => (
+              <TouchableOpacity key={h} onPress={() => setOtHours(h)}
+                style={{ flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 8, backgroundColor: otHours === h ? '#F59E0B' : '#F3F4F6', borderWidth: 1, borderColor: otHours === h ? '#D97706' : '#D1D5DB' }}>
+                <Text style={{ fontWeight: 'bold', fontSize: 13, color: otHours === h ? '#fff' : C.textSec }}>{h > 0 ? `+${h} ชม.` : 'ปกติ'}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </Card>
+      )}
+
       {team.length > 0 && (
         <View>
           <Card style={{ marginTop: 16, backgroundColor: C.primary }}>
-            {/* 🌟 นำกล่องสรุป % คุณภาพ และคะแนนรวมปริมาณ กลับมาใส่แล้วครับ */}
-            <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13, fontWeight: '600', marginBottom: 14 }}>สรุปผลประเมินทีม</Text>
+            <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13, fontWeight: '600', marginBottom: 14 }}>สรุปผลประเมินทีม {otHours > 0 && '(รวม OT แล้ว)'}</Text>
             <View style={{ flexDirection: 'row', gap: 10 }}>
               <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 10, padding: 14 }}>
                 <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>กำลังผลิตทีม/วัน</Text>
@@ -402,17 +476,34 @@ function PredictTab({ workers, projects }) {
               </View>
             </View>
 
+            {/* 🌟 แสดงส่วนสรุปยอดจ่ายทั้งหมด (Grand Total) */}
+            {daysNeeded > 0 && (
+              <View style={{ backgroundColor: '#ECFCCB', padding: 12, borderRadius: 10, marginTop: 14 }}>
+                <Text style={{ fontSize: 14, fontWeight: 'bold', color: '#4D7C0F', marginBottom: 5 }}>💰 ประมาณการต้นทุนโปรเจกต์นี้</Text>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                  <Text style={{ fontSize: 12, color: '#3F6212' }}>ค่าแรงต่อวัน (รวม OT):</Text>
+                  <Text style={{ fontSize: 12, fontWeight: 'bold', color: '#3F6212' }}>{totalDailyWage.toLocaleString()} ฿</Text>
+                </View>
+                <View style={{ height: 1, backgroundColor: '#84CC16', marginVertical: 6 }} />
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={{ fontSize: 14, fontWeight: 'bold', color: '#991B1B' }}>ยอดจ่ายรวม ({daysNeeded} วัน):</Text>
+                  <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#991B1B' }}>{(totalDailyWage * daysNeeded).toLocaleString()} บาท</Text>
+                </View>
+              </View>
+            )}
+
             {chartData1 && (
               <View style={{ marginTop: 16, backgroundColor: '#fff', borderRadius: 10, padding: 12 }}>
                 <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, marginBottom: 10, textAlign: 'center' }}>📊 กราฟเนื้องานสะสม (ปริมาณ vs เวลา)</Text>
                 <LineChart data={chartData1} width={screenWidth - 80} height={200} bezier chartConfig={{ backgroundColor: '#fff', backgroundGradientFrom: '#fff', backgroundGradientTo: '#fff', decimalPlaces: 0, color: (o = 1) => `rgba(0, 0, 0, ${o})`, labelColor: (o = 1) => `rgba(0, 0, 0, ${o})`, propsForDots: { r: "3" } }} style={{ borderRadius: 10 }} />
                 
-                {/* แจ้งเตือนเสร็จทัน/ไม่ทัน */}
                 <View style={{ marginTop: 12, padding: 12, borderRadius: 8, backgroundColor: daysNeeded <= tDays ? '#D1FAE5' : '#FEE2E2' }}>
                   <Text style={{ fontSize: 13, fontWeight: '700', color: daysNeeded <= tDays ? '#059669' : '#DC2626', textAlign: 'center' }}>
                     {daysNeeded <= tDays ? '✅ ทีมนี้ทำงานเสร็จทันตามแผน!' : '⚠️ ทีมนี้อาจทำงานล่าช้ากว่าแผน (Behind Schedule)'}
                   </Text>
-                  <Text style={{ fontSize: 12, color: C.textSec, marginTop: 4, textAlign: 'center' }}>ทีมใช้เวลาจริงประมาณ {daysNeeded} วัน (เผื่อ 10% แล้ว)</Text>
+                  <Text style={{ fontSize: 12, color: C.textSec, marginTop: 4, textAlign: 'center' }}>
+                    ทีมใช้เวลาจริงประมาณ {daysNeeded} วัน {otHours > 0 && `(ประหยัดเวลาลงเพราะ OT)`}
+                  </Text>
                 </View>
               </View>
             )}
