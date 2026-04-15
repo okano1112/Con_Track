@@ -17,7 +17,7 @@ import DocumentsScreen from './src/DocumentsScreen';
 import ProfileScreen from './src/ProfileScreen';
 import WorkerStatsScreen from './src/WorkerStatsScreen';
 import TeamCalcScreen from './src/Teamcalcscreen';
-
+import WeatherScreen from './src/WeatherScreen';
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 const Drawer = createDrawerNavigator();
@@ -62,6 +62,7 @@ function DrawerNav() {
     <Drawer.Navigator screenOptions={{ headerShown: false }}>
       <Drawer.Screen name="HomeTabs" component={BottomTabs} options={{ drawerLabel: 'หน้าหลัก' }} />
       <Drawer.Screen name="WorkerStats" component={WorkerStatsScreen} options={{ drawerLabel: 'สถิติช่าง' }} />
+      <Drawer.Screen name="Weater" component={WeatherScreen} options={{rawerLabel: 'สภาพอากาศ'}}/>
     </Drawer.Navigator>
   );
 }

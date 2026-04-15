@@ -16,11 +16,24 @@ export const C = {
   white: '#FFFFFF',
   border: '#E5E7EB',
 };
-
-// ============================================================
-// Button — ปุ่มหลัก
-// variant: 'primary' | 'outline' | 'danger'
-// ============================================================
+const StarRating = ({ rating, onRatingChange }) => {
+  return (
+    <View style={{ flexDirection: 'row', marginVertical: 10, gap: 8 }}>
+      {[1, 2, 3, 4, 5].map((star) => (
+        <TouchableOpacity key={star} onPress={() => onRatingChange(star)}>
+          <Ionicons 
+            name={rating >= star ? 'star' : 'star-outline'} 
+            size={32} 
+            color={rating >= star ? '#F59E0B' : '#D1D5DB'} 
+          />
+        </TouchableOpacity>
+      ))}
+      <Text style={{ fontSize: 16, marginLeft: 10, alignSelf: 'center', fontWeight: '600' }}>
+        {rating * 20}%
+      </Text>
+    </View>
+  );
+};
 export function Button({ title, onPress, variant = 'primary', icon, loading, style }) {
   const isPrimary = variant === 'primary';
   const isDanger = variant === 'danger';

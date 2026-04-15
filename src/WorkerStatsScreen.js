@@ -16,9 +16,9 @@ import { C, Card, Badge, ProgressBar, Button, Input, Empty } from './Components'
 import { getWorkersWithRecords, insertWorker, insertWorkerRecord, deleteWorker } from './db';
 
 // 🌟 Import คอมโพเนนต์ Normal Curve
-import { 
-  IndividualSkillCurve, 
-  CollectivePerformanceCurve, 
+import {
+  IndividualSkillCurve,
+  CollectivePerformanceCurve,
   MiniSkillIndicator,
   calculateStats,
   calculateZScore,
@@ -50,199 +50,199 @@ const OT_HOURS_OPTIONS = ['0', '1', '1.5', '2', '2.5', '3', '4', '5', '6', '7', 
 
 const WORK_TYPES = [
   // === งานโครงสร้าง ===
-  { 
-    key: 'โครงสร้าง คสล.', 
-    icon: 'business-outline', 
-    color: '#3B82F6', 
-    ref: 'สพฐ./กรมบัญชีกลาง: 2.4-3.2 ลบ.ม./คน/วัน', 
+  {
+    key: 'โครงสร้าง คสล.',
+    icon: 'business-outline',
+    color: '#3B82F6',
+    ref: 'สพฐ./กรมบัญชีกลาง: 2.4-3.2 ลบ.ม./คน/วัน',
     standard: 2.8,      // ลบ.ม./คน/วัน (รวมงานแบบ+เหล็ก+เท)
-    stdDev: 0.6,        
-    unit: 'ลบ.ม./วัน' 
+    stdDev: 0.6,
+    unit: 'ลบ.ม./วัน'
   },
-  { 
-    key: 'ผูกเหล็ก', 
-    icon: 'construct-outline', 
-    color: '#2563EB', 
-    ref: 'สพฐ.: 150-200 กก./คน/วัน', 
+  {
+    key: 'ผูกเหล็ก',
+    icon: 'construct-outline',
+    color: '#2563EB',
+    ref: 'สพฐ.: 150-200 กก./คน/วัน',
     standard: 175,      // กก./คน/วัน
-    stdDev: 35,         
-    unit: 'กก./วัน' 
+    stdDev: 35,
+    unit: 'กก./วัน'
   },
-  { 
-    key: 'เทปูน', 
-    icon: 'cube-outline', 
-    color: '#8B5CF6', 
-    ref: 'สพฐ.: 3-5 ลบ.ม./คน/วัน', 
+  {
+    key: 'เทปูน',
+    icon: 'cube-outline',
+    color: '#8B5CF6',
+    ref: 'สพฐ.: 3-5 ลบ.ม./คน/วัน',
     standard: 4,        // ลบ.ม./คน/วัน
-    stdDev: 0.8,        
-    unit: 'ลบ.ม./วัน' 
+    stdDev: 0.8,
+    unit: 'ลบ.ม./วัน'
   },
-  { 
-    key: 'ตั้งแบบ', 
-    icon: 'copy-outline', 
-    color: '#1D4ED8', 
-    ref: 'สพฐ.: 4-6 ตร.ม./คน/วัน', 
+  {
+    key: 'ตั้งแบบ',
+    icon: 'copy-outline',
+    color: '#1D4ED8',
+    ref: 'สพฐ.: 4-6 ตร.ม./คน/วัน',
     standard: 5,        // ตร.ม./คน/วัน
-    stdDev: 1,          
-    unit: 'ตร.ม./วัน' 
+    stdDev: 1,
+    unit: 'ตร.ม./วัน'
   },
-  
+
   // === งานก่อฉาบ ===
-  { 
-    key: 'ก่ออิฐมอญ', 
-    icon: 'grid-outline', 
-    color: '#F59E0B', 
-    ref: 'สพฐ.: 6-8 ตร.ม./คน/วัน (ครึ่งแผ่น)', 
+  {
+    key: 'ก่ออิฐมอญ',
+    icon: 'grid-outline',
+    color: '#F59E0B',
+    ref: 'สพฐ.: 6-8 ตร.ม./คน/วัน (ครึ่งแผ่น)',
     standard: 7,        // ตร.ม./คน/วัน (ก่ออิฐมอญครึ่งแผ่น)
-    stdDev: 1.5,        
-    unit: 'ตร.ม./วัน' 
+    stdDev: 1.5,
+    unit: 'ตร.ม./วัน'
   },
-  { 
-    key: 'ก่ออิฐบล็อก', 
-    icon: 'grid-outline', 
-    color: '#D97706', 
-    ref: 'สพฐ.: 8-12 ตร.ม./คน/วัน', 
+  {
+    key: 'ก่ออิฐบล็อก',
+    icon: 'grid-outline',
+    color: '#D97706',
+    ref: 'สพฐ.: 8-12 ตร.ม./คน/วัน',
     standard: 10,       // ตร.ม./คน/วัน (ก่ออิฐบล็อก)
-    stdDev: 2,          
-    unit: 'ตร.ม./วัน' 
+    stdDev: 2,
+    unit: 'ตร.ม./วัน'
   },
-  { 
-    key: 'ก่ออิฐมวลเบา', 
-    icon: 'grid-outline', 
-    color: '#B45309', 
-    ref: 'สพฐ.: 10-15 ตร.ม./คน/วัน', 
+  {
+    key: 'ก่ออิฐมวลเบา',
+    icon: 'grid-outline',
+    color: '#B45309',
+    ref: 'สพฐ.: 10-15 ตร.ม./คน/วัน',
     standard: 12,       // ตร.ม./คน/วัน (ก่ออิฐมวลเบา Q-CON)
-    stdDev: 2.5,        
-    unit: 'ตร.ม./วัน' 
+    stdDev: 2.5,
+    unit: 'ตร.ม./วัน'
   },
-  { 
-    key: 'ฉาบปูน', 
-    icon: 'layers-outline', 
-    color: '#10B981', 
-    ref: 'สพฐ.: 8-12 ตร.ม./คน/วัน (หนา 1.5 ซม.)', 
+  {
+    key: 'ฉาบปูน',
+    icon: 'layers-outline',
+    color: '#10B981',
+    ref: 'สพฐ.: 8-12 ตร.ม./คน/วัน (หนา 1.5 ซม.)',
     standard: 10,       // ตร.ม./คน/วัน (ฉาบหนา 1.5 ซม.)
-    stdDev: 2,          
-    unit: 'ตร.ม./วัน' 
+    stdDev: 2,
+    unit: 'ตร.ม./วัน'
   },
-  
+
   // === งานไม้ ===
-  { 
-    key: 'งานไม้แบบ', 
-    icon: 'hammer-outline', 
-    color: '#EC4899', 
-    ref: 'สพฐ.: 4-6 ตร.ม./คน/วัน', 
+  {
+    key: 'งานไม้แบบ',
+    icon: 'hammer-outline',
+    color: '#EC4899',
+    ref: 'สพฐ.: 4-6 ตร.ม./คน/วัน',
     standard: 5,        // ตร.ม./คน/วัน
-    stdDev: 1,          
-    unit: 'ตร.ม./วัน' 
+    stdDev: 1,
+    unit: 'ตร.ม./วัน'
   },
-  { 
-    key: 'งานไม้คร่าว/โครง', 
-    icon: 'hammer-outline', 
-    color: '#DB2777', 
-    ref: 'สพฐ.: 10-15 ตร.ม./คน/วัน', 
+  {
+    key: 'งานไม้คร่าว/โครง',
+    icon: 'hammer-outline',
+    color: '#DB2777',
+    ref: 'สพฐ.: 10-15 ตร.ม./คน/วัน',
     standard: 12,       // ตร.ม./คน/วัน
-    stdDev: 2.5,        
-    unit: 'ตร.ม./วัน' 
+    stdDev: 2.5,
+    unit: 'ตร.ม./วัน'
   },
-  
+
   // === งานระบบ ===
-  { 
-    key: 'งานไฟฟ้า', 
-    icon: 'flash-outline', 
-    color: '#F97316', 
-    ref: 'สพฐ.: 8-12 จุด/คน/วัน', 
+  {
+    key: 'งานไฟฟ้า',
+    icon: 'flash-outline',
+    color: '#F97316',
+    ref: 'สพฐ.: 8-12 จุด/คน/วัน',
     standard: 10,       // จุด/คน/วัน
-    stdDev: 2,          
-    unit: 'จุด/วัน' 
+    stdDev: 2,
+    unit: 'จุด/วัน'
   },
-  { 
-    key: 'งานประปา', 
-    icon: 'water-outline', 
-    color: '#06B6D4', 
-    ref: 'สพฐ.: 6-10 จุด/คน/วัน', 
+  {
+    key: 'งานประปา',
+    icon: 'water-outline',
+    color: '#06B6D4',
+    ref: 'สพฐ.: 6-10 จุด/คน/วัน',
     standard: 8,        // จุด/คน/วัน
-    stdDev: 1.5,        
-    unit: 'จุด/วัน' 
+    stdDev: 1.5,
+    unit: 'จุด/วัน'
   },
-  
+
   // === งานตกแต่ง ===
-  { 
-    key: 'งานทาสี', 
-    icon: 'color-palette-outline', 
-    color: '#10B981', 
-    ref: 'สพฐ.: 35-50 ตร.ม./คน/วัน (รองพื้น+ทับหน้า 2 รอบ)', 
+  {
+    key: 'งานทาสี',
+    icon: 'color-palette-outline',
+    color: '#10B981',
+    ref: 'สพฐ.: 35-50 ตร.ม./คน/วัน (รองพื้น+ทับหน้า 2 รอบ)',
     standard: 40,       // ตร.ม./คน/วัน (งานทาสี 2 รอบ)
-    stdDev: 8,          
-    unit: 'ตร.ม./วัน' 
+    stdDev: 8,
+    unit: 'ตร.ม./วัน'
   },
-  { 
-    key: 'งานกระเบื้องพื้น', 
-    icon: 'apps-outline', 
-    color: '#EC4899', 
-    ref: 'สพฐ.: 6-10 ตร.ม./คน/วัน', 
+  {
+    key: 'งานกระเบื้องพื้น',
+    icon: 'apps-outline',
+    color: '#EC4899',
+    ref: 'สพฐ.: 6-10 ตร.ม./คน/วัน',
     standard: 8,        // ตร.ม./คน/วัน (ปูกระเบื้องพื้น)
-    stdDev: 1.5,        
-    unit: 'ตร.ม./วัน' 
+    stdDev: 1.5,
+    unit: 'ตร.ม./วัน'
   },
-  { 
-    key: 'งานกระเบื้องผนัง', 
-    icon: 'apps-outline', 
-    color: '#BE185D', 
-    ref: 'สพฐ.: 4-7 ตร.ม./คน/วัน', 
+  {
+    key: 'งานกระเบื้องผนัง',
+    icon: 'apps-outline',
+    color: '#BE185D',
+    ref: 'สพฐ.: 4-7 ตร.ม./คน/วัน',
     standard: 5.5,      // ตร.ม./คน/วัน (ปูกระเบื้องผนัง)
-    stdDev: 1,          
-    unit: 'ตร.ม./วัน' 
+    stdDev: 1,
+    unit: 'ตร.ม./วัน'
   },
-  { 
-    key: 'งานฝ้าเพดาน', 
-    icon: 'resize-outline', 
-    color: '#A855F7', 
-    ref: 'สพฐ.: 10-15 ตร.ม./คน/วัน', 
+  {
+    key: 'งานฝ้าเพดาน',
+    icon: 'resize-outline',
+    color: '#A855F7',
+    ref: 'สพฐ.: 10-15 ตร.ม./คน/วัน',
     standard: 12,       // ตร.ม./คน/วัน
-    stdDev: 2.5,        
-    unit: 'ตร.ม./วัน' 
+    stdDev: 2.5,
+    unit: 'ตร.ม./วัน'
   },
-  
+
   // === งานเหล็ก/เชื่อม ===
-  { 
-    key: 'งานเชื่อม', 
-    icon: 'flame-outline', 
-    color: '#EF4444', 
-    ref: 'สพฐ.: 15-25 เมตร/คน/วัน (เชื่อมเหล็กโครงสร้าง)', 
+  {
+    key: 'งานเชื่อม',
+    icon: 'flame-outline',
+    color: '#EF4444',
+    ref: 'สพฐ.: 15-25 เมตร/คน/วัน (เชื่อมเหล็กโครงสร้าง)',
     standard: 20,       // เมตร/คน/วัน
-    stdDev: 4,          
-    unit: 'ม./วัน' 
+    stdDev: 4,
+    unit: 'ม./วัน'
   },
-  
+
   // === งานหลังคา ===
-  { 
-    key: 'มุงหลังคาเมทัลชีท', 
-    icon: 'home-outline', 
-    color: '#6366F1', 
-    ref: 'สพฐ.: 20-30 ตร.ม./คน/วัน', 
+  {
+    key: 'มุงหลังคาเมทัลชีท',
+    icon: 'home-outline',
+    color: '#6366F1',
+    ref: 'สพฐ.: 20-30 ตร.ม./คน/วัน',
     standard: 25,       // ตร.ม./คน/วัน
-    stdDev: 5,          
-    unit: 'ตร.ม./วัน' 
+    stdDev: 5,
+    unit: 'ตร.ม./วัน'
   },
-  { 
-    key: 'มุงหลังคากระเบื้อง', 
-    icon: 'home-outline', 
-    color: '#4F46E5', 
-    ref: 'สพฐ.: 10-15 ตร.ม./คน/วัน', 
+  {
+    key: 'มุงหลังคากระเบื้อง',
+    icon: 'home-outline',
+    color: '#4F46E5',
+    ref: 'สพฐ.: 10-15 ตร.ม./คน/วัน',
     standard: 12,       // ตร.ม./คน/วัน
-    stdDev: 2.5,        
-    unit: 'ตร.ม./วัน' 
+    stdDev: 2.5,
+    unit: 'ตร.ม./วัน'
   },
-  
+
   // === อื่นๆ ===
-  { 
-    key: 'อื่นๆ', 
-    icon: 'ellipsis-horizontal-outline', 
-    color: '#6B7280', 
-    ref: 'กำหนดเอง', 
-    standard: 10,       
-    stdDev: 2,          
-    unit: 'หน่วย/วัน' 
+  {
+    key: 'อื่นๆ',
+    icon: 'ellipsis-horizontal-outline',
+    color: '#6B7280',
+    ref: 'กำหนดเอง',
+    standard: 10,
+    stdDev: 2,
+    unit: 'หน่วย/วัน'
   },
 ];
 
@@ -294,6 +294,26 @@ function getMainWorkType(records) {
 // ============================================================
 // MAIN COMPONENT
 // ============================================================
+
+const StarRating = ({ rating, onRatingChange }) => {
+  return (
+    <View style={{ flexDirection: 'row', marginVertical: 10, alignItems: 'center' }}>
+      {[1, 2, 3, 4, 5].map((star) => (
+        <TouchableOpacity key={star} onPress={() => onRatingChange(star)}>
+          <Ionicons
+            name={rating >= star ? 'star' : 'star-outline'}
+            size={36}
+            color={rating >= star ? '#F59E0B' : '#D1D5DB'}
+            style={{ marginRight: 8 }}
+          />
+        </TouchableOpacity>
+      ))}
+      <Text style={{ fontSize: 16, marginLeft: 10, fontWeight: '700', color: '#0F2654' }}>
+        {rating * 20}%
+      </Text>
+    </View>
+  );
+};
 export default function WorkerStatsScreen({ navigation }) {
   const [workers, setWorkers] = useState([]);
   const [activeTab, setActiveTab] = useState('individual');
@@ -310,12 +330,18 @@ export default function WorkerStatsScreen({ navigation }) {
 
   const [pickerConfig, setPickerConfig] = useState({ visible: false, title: '', options: [], field: '', isMulti: false });
 
-  const [workerForm, setWorkerForm] = useState({ 
+  const [workerForm, setWorkerForm] = useState({
     name: '', roles: [], customRole: '', age: '', phone: '', avatarUri: '',
     nationality: '', gender: 'ชาย', dailyWage: '', experienceYears: '', employmentStatus: 'พนักงานรายวัน'
   });
-  
-  const [recordForm, setRecordForm] = useState({ workType: 'ผูกเหล็ก', date: new Date(), output: '', quality: '', otHours: '0' });
+
+  const [recordForm, setRecordForm] = useState({
+    workType: 'ผูกเหล็ก',
+    date: new Date(),
+    output: '',
+    qualityStar: 5, // เก็บเป็นจำนวนดาวแทนเปอร์เซ็นต์
+    otHours: '0'
+  });
   const [saving, setSaving] = useState(false);
 
   const loadData = async () => {
@@ -327,7 +353,7 @@ export default function WorkerStatsScreen({ navigation }) {
   // 🌟 ฟังก์ชันเตรียมข้อมูลสำหรับกราฟภาพรวมทีม
   const getTeamCurveData = (workType) => {
     const wt = WORK_TYPES.find(w => w.key === workType) || WORK_TYPES[0];
-    
+
     // รวบรวมช่างที่มีสถิติในประเภทงานนี้
     const workersWithData = workers
       .map(w => {
@@ -390,7 +416,7 @@ export default function WorkerStatsScreen({ navigation }) {
     if (!workerForm.name.trim()) return Alert.alert('แจ้งเตือน', 'กรุณากรอกชื่อพนักงาน');
     if (!workerForm.roles || workerForm.roles.length === 0) return Alert.alert('แจ้งเตือน', 'กรุณาเลือกตำแหน่งงานอย่างน้อย 1 ตำแหน่ง');
     if (!workerForm.nationality.trim()) return Alert.alert('แจ้งเตือน', 'กรุณาระบุสัญชาติ (บังคับ)');
-    
+
     let finalRole = workerForm.roles.join(', ');
     if (workerForm.roles.includes('อื่นๆ') && workerForm.customRole.trim()) {
       finalRole = finalRole.replace('อื่นๆ', workerForm.customRole.trim());
@@ -421,10 +447,10 @@ export default function WorkerStatsScreen({ navigation }) {
   const handleAddRecord = async () => {
     if (!selectedWorker) return;
     const output = parseFloat(recordForm.output);
-    const quality = parseFloat(recordForm.quality);
-    if (isNaN(output) || isNaN(quality)) return Alert.alert('แจ้งเตือน', 'กรุณากรอกตัวเลข');
-    if (output < 0 || quality < 0 || quality > 100) return Alert.alert('แจ้งเตือน', 'ตรวจสอบตัวเลข (คุณภาพ 0-100)');
-    
+    const qualityPercent = recordForm.qualityStar * 20; // 🌟 คลาสคำนวณแปลงดาวเป็นเปอเซ็นต์
+    if (isNaN(output)) return Alert.alert('แจ้งเตือน', 'กรุณากรอกตัวเลขปริมาณผลผลิต');
+    if (output < 0) return Alert.alert('แจ้งเตือน', 'ตรวจสอบตัวเลขผลผลิต');
+
     const otHrs = parseFloat(recordForm.otHours) || 0;
     const workerWage = parseFloat(selectedWorker.daily_wage) || 0;
     const otAmount = (workerWage / 8) * 1.5 * otHrs;
@@ -432,8 +458,9 @@ export default function WorkerStatsScreen({ navigation }) {
     setSaving(true);
     try {
       const formattedDate = new Date(recordForm.date.getTime() - (recordForm.date.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
-      await insertWorkerRecord(selectedWorker.id, recordForm.workType, formattedDate, output, quality, otHrs, otAmount);
-      setRecordForm({ workType: 'ผูกเหล็ก', date: new Date(), output: '', quality: '', otHours: '0' });
+      await insertWorkerRecord(selectedWorker.id, recordForm.workType, formattedDate, output, qualityPercent, otHrs, otAmount);
+
+      setRecordForm({ workType: 'ผูกเหล็ก', date: new Date(), output: '', qualityStar: 5, otHours: '0' });
       setShowAddRecord(false);
       await loadData();
       Alert.alert('สำเร็จ', `บันทึกสถิติเรียบร้อย`);
@@ -444,9 +471,11 @@ export default function WorkerStatsScreen({ navigation }) {
   const handleDelete = (w) => {
     Alert.alert('ลบข้อมูล', `ต้องการลบประวัติของ "${w.name}" ทั้งหมด?`, [
       { text: 'ยกเลิก' },
-      { text: 'ลบ', style: 'destructive', onPress: async () => {
-        await deleteWorker(w.id); setShowDetail(false); setSelectedWorker(null); await loadData();
-      }},
+      {
+        text: 'ลบ', style: 'destructive', onPress: async () => {
+          await deleteWorker(w.id); setShowDetail(false); setSelectedWorker(null); await loadData();
+        }
+      },
     ]);
   };
 
@@ -473,10 +502,10 @@ export default function WorkerStatsScreen({ navigation }) {
           <Text style={s.modalTitle}>{pickerConfig.title}</Text>
           <ScrollView style={{ maxHeight: 300, width: '100%', marginVertical: 10 }}>
             {pickerConfig.options.map(opt => {
-              const isSelected = pickerConfig.field === 'otHours' 
-                ? recordForm.otHours === opt 
+              const isSelected = pickerConfig.field === 'otHours'
+                ? recordForm.otHours === opt
                 : (pickerConfig.isMulti ? (workerForm[pickerConfig.field] || []).includes(opt) : workerForm[pickerConfig.field] === opt);
-              
+
               return (
                 <TouchableOpacity key={opt} onPress={() => handleSelectPickerOption(opt)} style={s.pickerItem}>
                   <Text style={{ fontSize: 16, color: isSelected ? C.primary : C.text, fontWeight: isSelected ? '700' : '400' }}>
@@ -505,7 +534,7 @@ export default function WorkerStatsScreen({ navigation }) {
             <TouchableOpacity onPress={() => setShowAddWorker(false)}><Ionicons name="close" size={24} color={C.textSec} /></TouchableOpacity>
           </View>
           <ScrollView showsVerticalScrollIndicator={false}>
-            
+
             <Input label="ชื่อ-นามสกุล *" value={workerForm.name} onChangeText={v => setWorkerForm(p => ({ ...p, name: v }))} placeholder="เช่น สมชาย ใจดี" icon="person-outline" />
 
             <Text style={s.label}>ตำแหน่งงาน (เลือกได้มากกว่า 1) *</Text>
@@ -559,7 +588,7 @@ export default function WorkerStatsScreen({ navigation }) {
   // ============================================================
   const renderAddRecordModal = () => {
     const activeWork = WORK_TYPES.find(w => w.key === recordForm.workType) || WORK_TYPES[0];
-    
+
     const workerWage = parseFloat(selectedWorker?.daily_wage) || 0;
     const otHrs = parseFloat(recordForm.otHours) || 0;
     const otPay = (workerWage / 8) * 1.5 * otHrs;
@@ -599,7 +628,7 @@ export default function WorkerStatsScreen({ navigation }) {
                 <Ionicons name="calendar-outline" size={18} color={C.textLight} style={{ marginRight: 10 }} />
                 <Text style={{ fontSize: 16, color: C.text }}>{recordForm.date.toLocaleDateString('th-TH')}</Text>
               </TouchableOpacity>
-              
+
               {showDatePicker && (
                 <DateTimePicker
                   value={recordForm.date}
@@ -613,8 +642,12 @@ export default function WorkerStatsScreen({ navigation }) {
               )}
 
               <Input label={`ปริมาณผลผลิตที่ได้ (${activeWork.unit}) *`} value={recordForm.output} onChangeText={v => setRecordForm(p => ({ ...p, output: v }))} placeholder="เช่น 20" keyboardType="numeric" icon="trending-up-outline" />
-              <Input label="คะแนนคุณภาพ (0-100) *" value={recordForm.quality} onChangeText={v => setRecordForm(p => ({ ...p, quality: v }))} placeholder="เช่น 90" keyboardType="numeric" icon="star-outline" />
-              
+              <Text style={s.label}>ประเมินคุณภาพงาน (ดาว) *</Text>
+              <StarRating
+                rating={recordForm.qualityStar}
+                onRatingChange={(stars) => setRecordForm(prev => ({ ...prev, qualityStar: stars }))}
+              />
+
               <Text style={s.label}>จำนวนชั่วโมง OT (ทำล่วงเวลา)</Text>
               <TouchableOpacity style={s.dropdownBtn} onPress={() => openPicker('เลือกชั่วโมง OT', OT_HOURS_OPTIONS, 'otHours')}>
                 <Text style={s.dropdownTxt}>{recordForm.otHours} ชั่วโมง</Text>
@@ -623,22 +656,22 @@ export default function WorkerStatsScreen({ navigation }) {
 
               {workerWage > 0 ? (
                 <View style={{ backgroundColor: '#FFF7ED', padding: 14, borderRadius: 10, marginBottom: 20, borderWidth: 1, borderColor: '#FED7AA' }}>
-                  <Text style={{ fontSize: 12, color: '#C2410C', marginBottom: 6 }}>ฐานค่าแรง: {workerWage} บ./วัน ({(workerWage/8).toFixed(1)} บ./ชม.)</Text>
-                  
+                  <Text style={{ fontSize: 12, color: '#C2410C', marginBottom: 6 }}>ฐานค่าแรง: {workerWage} บ./วัน ({(workerWage / 8).toFixed(1)} บ./ชม.)</Text>
+
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8, alignItems: 'center' }}>
                     <Text style={{ fontSize: 14, color: '#EA580C', fontWeight: '600' }}>ค่า OT สุทธิ (ยังไม่รวมค่าแรง)</Text>
                     <Text style={{ fontSize: 16, color: '#EA580C', fontWeight: '800' }}>+ {otPay.toFixed(2)} ฿</Text>
                   </View>
-                  
+
                   <View style={{ height: 1, backgroundColor: '#FDBA74', marginVertical: 6 }} />
-                  
+
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                     <Text style={{ fontSize: 15, color: '#9A3412', fontWeight: '700' }}>OT รวมค่าแรงทั้งหมด</Text>
                     <Text style={{ fontSize: 20, color: '#9A3412', fontWeight: '900' }}>{totalPay.toFixed(2)} ฿</Text>
                   </View>
                 </View>
               ) : (
-                 <Text style={{ fontSize: 12, color: '#EF4444', marginBottom: 20 }}>* ไม่สามารถคำนวณ OT ได้ (ช่างไม่มีข้อมูลค่าแรง)</Text>
+                <Text style={{ fontSize: 12, color: '#EF4444', marginBottom: 20 }}>* ไม่สามารถคำนวณ OT ได้ (ช่างไม่มีข้อมูลค่าแรง)</Text>
               )}
 
               <Button title="บันทึกสถิติ" onPress={handleAddRecord} loading={saving} icon="checkmark-circle" />
@@ -758,7 +791,7 @@ export default function WorkerStatsScreen({ navigation }) {
 
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 30 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await loadData(); setRefreshing(false); }} />}>
-        
+
         {/* ============================================================ */}
         {/* TAB: รายบุคคล (🌟 เพิ่ม MiniSkillIndicator) */}
         {/* ============================================================ */}
@@ -849,7 +882,7 @@ export default function WorkerStatsScreen({ navigation }) {
                   วิเคราะห์ทักษะทีม (Normal Curve)
                 </Text>
               </View>
-              
+
               {/* เลือกประเภทงาน */}
               <Text style={{ fontSize: 12, color: C.textSec, marginBottom: 8 }}>เลือกประเภทงานที่ต้องการวิเคราะห์</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
@@ -857,8 +890,8 @@ export default function WorkerStatsScreen({ navigation }) {
                   {WORK_TYPES.filter(w => w.key !== 'อื่นๆ').map(wt => {
                     const isSelected = dashboardWorkType === wt.key;
                     return (
-                      <TouchableOpacity 
-                        key={wt.key} 
+                      <TouchableOpacity
+                        key={wt.key}
                         onPress={() => setDashboardWorkType(wt.key)}
                         style={{
                           flexDirection: 'row', alignItems: 'center', gap: 6,
@@ -881,12 +914,12 @@ export default function WorkerStatsScreen({ navigation }) {
             {/* แสดงกราฟ */}
             {(() => {
               const { workersWithData, mean, stdDev, unit } = getTeamCurveData(dashboardWorkType);
-              
+
               if (workersWithData.length === 0) {
                 return (
                   <Card>
-                    <Empty 
-                      icon="analytics-outline" 
+                    <Empty
+                      icon="analytics-outline"
                       title={`ยังไม่มีข้อมูลงาน "${dashboardWorkType}"`}
                       subtitle="เพิ่มสถิติการทำงานให้กับช่างเพื่อดูการวิเคราะห์"
                     />
