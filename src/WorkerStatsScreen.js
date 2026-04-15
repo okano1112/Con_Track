@@ -1,8 +1,12 @@
 // src/WorkerStatsScreen.js
+// ============================================================
+// หน้าสถิติและประเมินช่าง (อัปเดต: เพิ่มระบบ Normal Curve)
+// ============================================================
+
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Alert, Modal, RefreshControl, Image, Linking, Platform
+  Alert, Modal, RefreshControl, Image, Platform
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
@@ -11,31 +15,55 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { C, Card, Badge, ProgressBar, Button, Input, Empty } from './Components';
 import { getWorkersWithRecords, insertWorker, insertWorkerRecord, deleteWorker } from './db';
 
+// 🌟 Import คอมโพเนนต์ Normal Curve
+import { 
+  IndividualSkillCurve, 
+  CollectivePerformanceCurve, 
+  MiniSkillIndicator,
+  calculateStats,
+  calculateZScore,
+  zScoreToPercentile,
+  getSkillLevel
+} from './NormalCurveComponents';
+
 const ROLES = ['ช่างไม้', 'ช่างก่อ', 'ช่างฉาบ', 'ช่างเหล็ก/ผูกเหล็ก', 'ช่างปูน/เทปูน', 'ช่างไฟฟ้า', 'ช่างประปา', 'ช่างแอร์', 'ช่างฝ้าเพดาน', 'ช่างกระเบื้อง', 'ช่างทาสี', 'ช่างเชื่อม', 'คนงานทั่วไป', 'อื่นๆ'];
 const GENDERS = ['ชาย', 'หญิง'];
 const EMPLOYMENT_STATUSES = ['พนักงานประจำ', 'พนักงานรายวัน', 'ผู้รับเหมาช่วง'];
-const OT_HOURS_OPTIONS = ['0', '1', '1.5', '2', '2.5', '3', '4', '5', '6', '7', '8']; // 🌟 ตัวเลือก OT
+const OT_HOURS_OPTIONS = ['0', '1', '1.5', '2', '2.5', '3', '4', '5', '6', '7', '8'];
 
+// 🌟 ข้อมูลมาตรฐาน สธ. พร้อมค่า SD โดยประมาณ (SD = 25% ของ standard)
 const WORK_TYPES = [
-  { key: 'โครงสร้าง คสล.', icon: 'business-outline', color: '#3B82F6', ref: 'มาตรฐาน 27 ตร.ม./วัน' },
-  { key: 'ผูกเหล็ก', icon: 'construct-outline', color: '#2563EB', ref: 'มาตรฐาน 50 กก./วัน' },
-  { key: 'เทปูน', icon: 'cube-outline', color: '#8B5CF6', ref: 'มาตรฐาน 3 ลบ.ม./วัน' },
-  { key: 'ก่ออิฐ', icon: 'grid-outline', color: '#F59E0B', ref: 'มาตรฐาน 24 ตร.ม./วัน' },
-  { key: 'ฉาบปูน', icon: 'layers-outline', color: '#10B981', ref: 'มาตรฐาน 14 ตร.ม./วัน' },
-  { key: 'งานไม้', icon: 'hammer-outline', color: '#EC4899', ref: 'มาตรฐาน 20 ตร.ม./วัน' },
-  { key: 'งานไฟฟ้า', icon: 'flash-outline', color: '#F97316', ref: 'มาตรฐาน 13 จุด/วัน' },
-  { key: 'งานประปา', icon: 'water-outline', color: '#06B6D4', ref: 'มาตรฐาน 10 จุด/วัน' },
-  { key: 'งานทาสี', icon: 'color-palette-outline', color: '#10B981', ref: 'มาตรฐาน 85 ตร.ม./วัน' },
-  { key: 'งานกระเบื้อง', icon: 'apps-outline', color: '#EC4899', ref: 'มาตรฐาน 25 ตร.ม./วัน' },
-  { key: 'งานฝ้า', icon: 'resize-outline', color: '#A855F7', ref: 'มาตรฐาน 35 ตร.ม./วัน' },
-  { key: 'งานเชื่อม', icon: 'flame-outline', color: '#EF4444', ref: 'มาตรฐาน 10 จุด/วัน' },
-  { key: 'อื่นๆ', icon: 'ellipsis-horizontal-outline', color: '#6B7280', ref: '' },
+  { key: 'โครงสร้าง คสล.', icon: 'business-outline', color: '#3B82F6', ref: 'มาตรฐาน 27 ตร.ม./วัน', standard: 27, stdDev: 6.75, unit: 'ตร.ม./วัน' },
+  { key: 'ผูกเหล็ก', icon: 'construct-outline', color: '#2563EB', ref: 'มาตรฐาน 50 กก./วัน', standard: 50, stdDev: 12.5, unit: 'กก./วัน' },
+  { key: 'เทปูน', icon: 'cube-outline', color: '#8B5CF6', ref: 'มาตรฐาน 3 ลบ.ม./วัน', standard: 3, stdDev: 0.75, unit: 'ลบ.ม./วัน' },
+  { key: 'ก่ออิฐ', icon: 'grid-outline', color: '#F59E0B', ref: 'มาตรฐาน 24 ตร.ม./วัน', standard: 24, stdDev: 6, unit: 'ตร.ม./วัน' },
+  { key: 'ฉาบปูน', icon: 'layers-outline', color: '#10B981', ref: 'มาตรฐาน 14 ตร.ม./วัน', standard: 14, stdDev: 3.5, unit: 'ตร.ม./วัน' },
+  { key: 'งานไม้', icon: 'hammer-outline', color: '#EC4899', ref: 'มาตรฐาน 20 ตร.ม./วัน', standard: 20, stdDev: 5, unit: 'ตร.ม./วัน' },
+  { key: 'งานไฟฟ้า', icon: 'flash-outline', color: '#F97316', ref: 'มาตรฐาน 13 จุด/วัน', standard: 13, stdDev: 3.25, unit: 'จุด/วัน' },
+  { key: 'งานประปา', icon: 'water-outline', color: '#06B6D4', ref: 'มาตรฐาน 10 จุด/วัน', standard: 10, stdDev: 2.5, unit: 'จุด/วัน' },
+  { key: 'งานทาสี', icon: 'color-palette-outline', color: '#10B981', ref: 'มาตรฐาน 85 ตร.ม./วัน', standard: 85, stdDev: 21.25, unit: 'ตร.ม./วัน' },
+  { key: 'งานกระเบื้อง', icon: 'apps-outline', color: '#EC4899', ref: 'มาตรฐาน 25 ตร.ม./วัน', standard: 25, stdDev: 6.25, unit: 'ตร.ม./วัน' },
+  { key: 'งานฝ้า', icon: 'resize-outline', color: '#A855F7', ref: 'มาตรฐาน 35 ตร.ม./วัน', standard: 35, stdDev: 8.75, unit: 'ตร.ม./วัน' },
+  { key: 'งานเชื่อม', icon: 'flame-outline', color: '#EF4444', ref: 'มาตรฐาน 10 จุด/วัน', standard: 10, stdDev: 2.5, unit: 'จุด/วัน' },
+  { key: 'มุงหลังคา', icon: 'home-outline', color: '#6366F1', ref: 'มาตรฐาน 43 ตร.ม./วัน', standard: 43, stdDev: 10.75, unit: 'ตร.ม./วัน' },
+  { key: 'อื่นๆ', icon: 'ellipsis-horizontal-outline', color: '#6B7280', ref: '', standard: 10, stdDev: 2.5, unit: 'หน่วย/วัน' },
 ];
 
+// ============================================================
+// Helper Functions
+// ============================================================
 function calcAvg(records, field) {
   if (!records?.length) return 0;
   return Math.round((records.reduce((s, r) => s + (r[field] || 0), 0) / records.length) * 10) / 10;
 }
+
+// 🌟 ใหม่: คำนวณค่าเฉลี่ยตามประเภทงาน
+function calcAvgByWorkType(records, workType, field) {
+  const filtered = (records || []).filter(r => r.work_type === workType);
+  if (!filtered.length) return 0;
+  return Math.round((filtered.reduce((s, r) => s + (r[field] || 0), 0) / filtered.length) * 10) / 10;
+}
+
 function getGrade(avg) {
   if (avg >= 90) return { label: 'A', color: '#10B981', bg: '#D1FAE5' };
   if (avg >= 75) return { label: 'B', color: '#3B82F6', bg: '#DBEAFE' };
@@ -43,10 +71,32 @@ function getGrade(avg) {
   if (avg >= 40) return { label: 'D', color: '#F97316', bg: '#FFEDD5' };
   return { label: 'F', color: '#EF4444', bg: '#FEE2E2' };
 }
+
 function getScore(worker) {
   return Math.round((calcAvg(worker.records, 'output') + calcAvg(worker.records, 'quality')) / 2);
 }
 
+// 🌟 หาประเภทงานหลักของช่าง (งานที่ทำบ่อยที่สุด)
+function getMainWorkType(records) {
+  if (!records || records.length === 0) return null;
+  const counts = {};
+  records.forEach(r => {
+    counts[r.work_type] = (counts[r.work_type] || 0) + 1;
+  });
+  let maxType = null;
+  let maxCount = 0;
+  Object.entries(counts).forEach(([type, count]) => {
+    if (count > maxCount) {
+      maxCount = count;
+      maxType = type;
+    }
+  });
+  return maxType;
+}
+
+// ============================================================
+// MAIN COMPONENT
+// ============================================================
 export default function WorkerStatsScreen({ navigation }) {
   const [workers, setWorkers] = useState([]);
   const [activeTab, setActiveTab] = useState('individual');
@@ -58,6 +108,9 @@ export default function WorkerStatsScreen({ navigation }) {
   const [showDetail, setShowDetail] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
 
+  // 🌟 State สำหรับเลือกประเภทงานใน Dashboard (กราฟภาพรวม)
+  const [dashboardWorkType, setDashboardWorkType] = useState('ผูกเหล็ก');
+
   const [pickerConfig, setPickerConfig] = useState({ visible: false, title: '', options: [], field: '', isMulti: false });
 
   const [workerForm, setWorkerForm] = useState({ 
@@ -65,7 +118,6 @@ export default function WorkerStatsScreen({ navigation }) {
     nationality: '', gender: 'ชาย', dailyWage: '', experienceYears: '', employmentStatus: 'พนักงานรายวัน'
   });
   
-  // 🌟 เพิ่ม State รับค่า OT
   const [recordForm, setRecordForm] = useState({ workType: 'ผูกเหล็ก', date: new Date(), output: '', quality: '', otHours: '0' });
   const [saving, setSaving] = useState(false);
 
@@ -75,12 +127,34 @@ export default function WorkerStatsScreen({ navigation }) {
   };
   useFocusEffect(useCallback(() => { loadData(); }, []));
 
+  // 🌟 ฟังก์ชันเตรียมข้อมูลสำหรับกราฟภาพรวมทีม
+  const getTeamCurveData = (workType) => {
+    const wt = WORK_TYPES.find(w => w.key === workType) || WORK_TYPES[0];
+    
+    // รวบรวมช่างที่มีสถิติในประเภทงานนี้
+    const workersWithData = workers
+      .map(w => {
+        const avgOutput = calcAvgByWorkType(w.records, workType, 'output');
+        if (avgOutput > 0) {
+          return { id: w.id, name: w.name, output: avgOutput };
+        }
+        return null;
+      })
+      .filter(w => w !== null);
+
+    return {
+      workersWithData,
+      mean: wt.standard,
+      stdDev: wt.stdDev,
+      unit: wt.unit
+    };
+  };
+
   const openPicker = (title, options, field, isMulti = false) => {
     setPickerConfig({ visible: true, title, options, field, isMulti });
   };
 
   const handleSelectPickerOption = (opt) => {
-    // 🌟 แยกเช็คว่ากำลังกด Picker ของ RecordForm หรือ WorkerForm
     if (pickerConfig.field === 'otHours') {
       setRecordForm(p => ({ ...p, otHours: opt }));
       setPickerConfig(p => ({ ...p, visible: false }));
@@ -154,7 +228,6 @@ export default function WorkerStatsScreen({ navigation }) {
     if (isNaN(output) || isNaN(quality)) return Alert.alert('แจ้งเตือน', 'กรุณากรอกตัวเลข');
     if (output < 0 || quality < 0 || quality > 100) return Alert.alert('แจ้งเตือน', 'ตรวจสอบตัวเลข (คุณภาพ 0-100)');
     
-    // 🌟 คำนวณ OT สำหรับส่งเข้า DB
     const otHrs = parseFloat(recordForm.otHours) || 0;
     const workerWage = parseFloat(selectedWorker.daily_wage) || 0;
     const otAmount = (workerWage / 8) * 1.5 * otHrs;
@@ -193,6 +266,9 @@ export default function WorkerStatsScreen({ navigation }) {
 
   const ranked = [...workers].map(w => ({ ...w, score: getScore(w) })).sort((a, b) => b.score - a.score);
 
+  // ============================================================
+  // RENDER: Custom Picker Modal
+  // ============================================================
   const renderCustomPicker = () => (
     <Modal visible={pickerConfig.visible} transparent animationType="fade">
       <View style={s.pickerOverlay}>
@@ -220,6 +296,9 @@ export default function WorkerStatsScreen({ navigation }) {
     </Modal>
   );
 
+  // ============================================================
+  // RENDER: Add Worker Modal
+  // ============================================================
   const renderAddWorkerModal = () => (
     <Modal visible={showAddWorker} animationType="slide" transparent>
       <View style={s.overlay}>
@@ -278,10 +357,12 @@ export default function WorkerStatsScreen({ navigation }) {
     </Modal>
   );
 
+  // ============================================================
+  // RENDER: Add Record Modal
+  // ============================================================
   const renderAddRecordModal = () => {
     const activeWork = WORK_TYPES.find(w => w.key === recordForm.workType) || WORK_TYPES[0];
     
-    // 🌟 คำนวณ UI เพื่อโชว์ให้ผู้ใช้เห็นทันทีตอนเลือก Picker
     const workerWage = parseFloat(selectedWorker?.daily_wage) || 0;
     const otHrs = parseFloat(recordForm.otHours) || 0;
     const otPay = (workerWage / 8) * 1.5 * otHrs;
@@ -309,6 +390,13 @@ export default function WorkerStatsScreen({ navigation }) {
                 })}
               </View>
 
+              {/* 🌟 แสดงมาตรฐานอ้างอิง */}
+              {activeWork.ref && (
+                <View style={{ backgroundColor: '#EFF6FF', padding: 10, borderRadius: 8, marginBottom: 12 }}>
+                  <Text style={{ fontSize: 12, color: '#3B82F6' }}>📊 {activeWork.ref}</Text>
+                </View>
+              )}
+
               <Text style={s.label}>วันที่ปฏิบัติงาน</Text>
               <TouchableOpacity onPress={() => setShowDatePicker(true)} style={s.dateBtn}>
                 <Ionicons name="calendar-outline" size={18} color={C.textLight} style={{ marginRight: 10 }} />
@@ -327,17 +415,15 @@ export default function WorkerStatsScreen({ navigation }) {
                 />
               )}
 
-              <Input label="ปริมาณผลผลิตที่ได้ *" value={recordForm.output} onChangeText={v => setRecordForm(p => ({ ...p, output: v }))} placeholder="เช่น 20" keyboardType="numeric" icon="trending-up-outline" />
+              <Input label={`ปริมาณผลผลิตที่ได้ (${activeWork.unit}) *`} value={recordForm.output} onChangeText={v => setRecordForm(p => ({ ...p, output: v }))} placeholder="เช่น 20" keyboardType="numeric" icon="trending-up-outline" />
               <Input label="คะแนนคุณภาพ (0-100) *" value={recordForm.quality} onChangeText={v => setRecordForm(p => ({ ...p, quality: v }))} placeholder="เช่น 90" keyboardType="numeric" icon="star-outline" />
               
-              {/* 🌟 ระบบให้เลือกชั่วโมง OT */}
               <Text style={s.label}>จำนวนชั่วโมง OT (ทำล่วงเวลา)</Text>
               <TouchableOpacity style={s.dropdownBtn} onPress={() => openPicker('เลือกชั่วโมง OT', OT_HOURS_OPTIONS, 'otHours')}>
                 <Text style={s.dropdownTxt}>{recordForm.otHours} ชั่วโมง</Text>
                 <Ionicons name="chevron-down" size={18} color={C.textSec} />
               </TouchableOpacity>
 
-              {/* 🌟 กล่องโชว์เงิน 2 ช่อง */}
               {workerWage > 0 ? (
                 <View style={{ backgroundColor: '#FFF7ED', padding: 14, borderRadius: 10, marginBottom: 20, borderWidth: 1, borderColor: '#FED7AA' }}>
                   <Text style={{ fontSize: 12, color: '#C2410C', marginBottom: 6 }}>ฐานค่าแรง: {workerWage} บ./วัน ({(workerWage/8).toFixed(1)} บ./ชม.)</Text>
@@ -367,12 +453,20 @@ export default function WorkerStatsScreen({ navigation }) {
     );
   };
 
+  // ============================================================
+  // RENDER: Detail Modal (🌟 เพิ่ม Individual Skill Curve)
+  // ============================================================
   const renderDetailModal = () => {
     if (!selectedWorker) return null;
     const avgO = calcAvg(selectedWorker.records, 'output');
     const avgQ = calcAvg(selectedWorker.records, 'quality');
     const score = getScore(selectedWorker);
     const grade = getGrade(score);
+
+    // 🌟 หาประเภทงานหลักและข้อมูลสำหรับกราฟ
+    const mainWorkType = getMainWorkType(selectedWorker.records);
+    const mainWorkTypeData = mainWorkType ? WORK_TYPES.find(w => w.key === mainWorkType) : null;
+    const mainWorkTypeAvgOutput = mainWorkType ? calcAvgByWorkType(selectedWorker.records, mainWorkType, 'output') : 0;
 
     return (
       <Modal visible={showDetail} animationType="slide" transparent>
@@ -393,6 +487,18 @@ export default function WorkerStatsScreen({ navigation }) {
                 {selectedWorker.daily_wage > 0 && <Text style={{ fontSize: 13, color: C.primary, marginTop: 4, fontWeight: 'bold' }}>ค่าแรง: {selectedWorker.daily_wage} บ./วัน</Text>}
                 <Badge label={`เกรด ${grade.label} • ${score}%`} color={grade.color} bg={grade.bg} />
               </View>
+
+              {/* 🌟 กราฟ Normal Curve รายบุคคล */}
+              {mainWorkTypeData && mainWorkTypeAvgOutput > 0 && (
+                <IndividualSkillCurve
+                  currentWorkerOutput={mainWorkTypeAvgOutput}
+                  workTypeMean={mainWorkTypeData.standard}
+                  workTypeSD={mainWorkTypeData.stdDev}
+                  workerName={selectedWorker.name}
+                  workTypeName={mainWorkType}
+                  unit={mainWorkTypeData.unit}
+                />
+              )}
 
               <Card>
                 <Text style={{ fontSize: 14, fontWeight: '600', color: C.text, marginBottom: 12 }}>ประวัติล่าสุด</Text>
@@ -416,6 +522,9 @@ export default function WorkerStatsScreen({ navigation }) {
     );
   };
 
+  // ============================================================
+  // MAIN RENDER
+  // ============================================================
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <View style={{ backgroundColor: C.primary, paddingTop: 50, paddingBottom: 16, paddingHorizontal: 20 }}>
@@ -452,6 +561,10 @@ export default function WorkerStatsScreen({ navigation }) {
 
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 30 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await loadData(); setRefreshing(false); }} />}>
+        
+        {/* ============================================================ */}
+        {/* TAB: รายบุคคล (🌟 เพิ่ม MiniSkillIndicator) */}
+        {/* ============================================================ */}
         {activeTab === 'individual' ? (
           <View>
             <Button title="เพิ่มพนักงานใหม่" icon="person-add-outline" onPress={() => setShowAddWorker(true)} style={{ marginBottom: 16 }} />
@@ -459,6 +572,12 @@ export default function WorkerStatsScreen({ navigation }) {
               const avgOut = calcAvg(w.records, 'output');
               const avgQ = calcAvg(w.records, 'quality');
               const grade = getGrade(getScore(w));
+
+              // 🌟 หาประเภทงานหลักสำหรับ Mini Indicator
+              const mainWorkType = getMainWorkType(w.records);
+              const mainWorkTypeData = mainWorkType ? WORK_TYPES.find(wt => wt.key === mainWorkType) : null;
+              const mainWorkTypeAvgOutput = mainWorkType ? calcAvgByWorkType(w.records, mainWorkType, 'output') : 0;
+
               return (
                 <Card key={w.id} onPress={() => { setSelectedWorker(w); setShowDetail(true); }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
@@ -467,7 +586,18 @@ export default function WorkerStatsScreen({ navigation }) {
                       <Text style={{ fontSize: 16, fontWeight: '700', color: C.text }}>{w.name}</Text>
                       <Text style={{ fontSize: 13, color: C.textSec }}>{w.role || '-'}</Text>
                     </View>
-                    <Badge label={`เกรด ${grade.label}`} color={grade.color} bg={grade.bg} />
+                    <View style={{ alignItems: 'flex-end' }}>
+                      <Badge label={`เกรด ${grade.label}`} color={grade.color} bg={grade.bg} />
+                      {/* 🌟 Mini Skill Indicator */}
+                      {mainWorkTypeData && mainWorkTypeAvgOutput > 0 && (
+                        <MiniSkillIndicator
+                          output={mainWorkTypeAvgOutput}
+                          mean={mainWorkTypeData.standard}
+                          stdDev={mainWorkTypeData.stdDev}
+                          width={70}
+                        />
+                      )}
+                    </View>
                   </View>
                   <View style={{ marginBottom: 6 }}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 }}>
@@ -496,7 +626,11 @@ export default function WorkerStatsScreen({ navigation }) {
             }) : <Empty icon="people-outline" title="ยังไม่มีข้อมูลพนักงาน" subtitle="กดเพิ่มพนักงานใหม่ด้านบน" />}
           </View>
         ) : (
+          /* ============================================================ */
+          /* TAB: ภาพรวมทีม (🌟 เพิ่ม Collective Performance Curve) */
+          /* ============================================================ */
           <View>
+            {/* สรุปตัวเลข */}
             <View style={{ flexDirection: 'row', gap: 10, marginBottom: 16 }}>
               {[
                 { val: workers.length, label: 'ช่างทั้งหมด', color: '#3B82F6', bg: '#DBEAFE' },
@@ -510,7 +644,79 @@ export default function WorkerStatsScreen({ navigation }) {
               ))}
             </View>
 
-            <Text style={{ fontSize: 17, fontWeight: '700', color: C.text, marginBottom: 12 }}>จัดอันดับช่าง</Text>
+            {/* 🌟 กราฟภาพรวมทีม (Collective Performance Curve) */}
+            <Card style={{ marginBottom: 16 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+                <Ionicons name="stats-chart-outline" size={20} color={C.primary} />
+                <Text style={{ fontSize: 15, fontWeight: '700', color: C.text, marginLeft: 8 }}>
+                  วิเคราะห์ทักษะทีม (Normal Curve)
+                </Text>
+              </View>
+              
+              {/* เลือกประเภทงาน */}
+              <Text style={{ fontSize: 12, color: C.textSec, marginBottom: 8 }}>เลือกประเภทงานที่ต้องการวิเคราะห์</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  {WORK_TYPES.filter(w => w.key !== 'อื่นๆ').map(wt => {
+                    const isSelected = dashboardWorkType === wt.key;
+                    return (
+                      <TouchableOpacity 
+                        key={wt.key} 
+                        onPress={() => setDashboardWorkType(wt.key)}
+                        style={{
+                          flexDirection: 'row', alignItems: 'center', gap: 6,
+                          paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20,
+                          backgroundColor: isSelected ? wt.color : '#F3F4F6',
+                          borderWidth: isSelected ? 0 : 1, borderColor: C.border,
+                        }}
+                      >
+                        <Ionicons name={wt.icon} size={14} color={isSelected ? '#fff' : C.textSec} />
+                        <Text style={{ color: isSelected ? '#fff' : C.textSec, fontWeight: '600', fontSize: 11 }}>
+                          {wt.key}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </ScrollView>
+            </Card>
+
+            {/* แสดงกราฟ */}
+            {(() => {
+              const { workersWithData, mean, stdDev, unit } = getTeamCurveData(dashboardWorkType);
+              
+              if (workersWithData.length === 0) {
+                return (
+                  <Card>
+                    <Empty 
+                      icon="analytics-outline" 
+                      title={`ยังไม่มีข้อมูลงาน "${dashboardWorkType}"`}
+                      subtitle="เพิ่มสถิติการทำงานให้กับช่างเพื่อดูการวิเคราะห์"
+                    />
+                  </Card>
+                );
+              }
+
+              return (
+                <CollectivePerformanceCurve
+                  workersData={workersWithData}
+                  workTypeMean={mean}
+                  workTypeSD={stdDev}
+                  workTypeName={dashboardWorkType}
+                  unit={unit}
+                  onWorkerPress={(w) => {
+                    const fullWorker = workers.find(fw => fw.id === w.id);
+                    if (fullWorker) {
+                      setSelectedWorker(fullWorker);
+                      setShowDetail(true);
+                    }
+                  }}
+                />
+              );
+            })()}
+
+            {/* จัดอันดับช่าง */}
+            <Text style={{ fontSize: 17, fontWeight: '700', color: C.text, marginTop: 16, marginBottom: 12 }}>จัดอันดับช่าง</Text>
             {ranked.length > 0 ? ranked.map((w, i) => {
               const grade = getGrade(w.score);
               const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${i + 1}`;
