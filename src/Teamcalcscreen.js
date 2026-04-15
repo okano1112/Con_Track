@@ -123,9 +123,8 @@ function TeamTab({ workers }) {
   const extraOTOutput = (baseTeamOutput / 8) * otHours; 
   const teamOutput = baseTeamOutput + extraOTOutput;
 
-  // 🌟 คำนวณค่าแรงรายวัน
   const baseWage = team.reduce((sum, w) => sum + (parseFloat(w.daily_wage) || 300), 0);
-  const otWage = (baseWage / 8) * 1.5 * otHours; // เรท OT 1.5 เท่า
+  const otWage = (baseWage / 8) * 1.5 * otHours; 
   const totalDailyWage = baseWage + otWage;
 
   const teamQuality = calculateTeamQuality(team, workType);
@@ -272,7 +271,6 @@ function TeamTab({ workers }) {
             </View>
           </View>
 
-          {/* 🌟 แสดงส่วนสรุปต้นทุนค่าแรง */}
           <View style={{ backgroundColor: '#ECFCCB', padding: 12, borderRadius: 10, marginTop: 14 }}>
             <Text style={{ fontSize: 14, fontWeight: 'bold', color: '#4D7C0F', marginBottom: 5 }}>💰 ประมาณการต้นทุนค่าแรงต่อวัน</Text>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
@@ -314,7 +312,7 @@ function TeamTab({ workers }) {
 }
 
 // ==========================================
-// แท็บ 2: ทำนายผลผลิต
+// แท็บ 2: ทำนายผลผลิต (ระบบคำนวณ OT และวันลดลงแบบละเอียด)
 // ==========================================
 function PredictTab({ workers, projects }) {
   const [workType, setWorkType] = useState('ผูกเหล็ก');
@@ -332,20 +330,36 @@ function PredictTab({ workers, projects }) {
 
   const team = candidates.filter(w => selectedIds.includes(w.id));
   
+  // คำนวณผลผลิต
   const baseTeamOutput = team.reduce((sum, w) => sum + getEffectiveOutput(w, workType), 0);
   const extraOTOutput = (baseTeamOutput / 8) * otHours; 
   const teamOutput = baseTeamOutput + extraOTOutput;
 
-  // 🌟 คำนวณค่าแรงรายวัน สำหรับแท็บทำนาย
+  // คำนวณค่าแรง
   const baseWage = team.reduce((sum, w) => sum + (parseFloat(w.daily_wage) || 300), 0);
   const otWage = (baseWage / 8) * 1.5 * otHours; 
   const totalDailyWage = baseWage + otWage;
 
   const teamQuality = calculateTeamQuality(team, workType);
 
+  // 🌟 คำนวณจำนวนวัน (แบบมี/ไม่มี OT) เพื่อหาว่า "ประหยัดไปกี่วัน"
   const tw = parseFloat(totalWork) || 0;
   const tDays = parseInt(targetDays) || 0;
+  const daysNeededBase = (baseTeamOutput > 0 && tw > 0) ? Math.ceil((tw * 1.1) / baseTeamOutput) : 0; 
   const daysNeeded = (teamOutput > 0 && tw > 0) ? Math.ceil((tw * 1.1) / teamOutput) : 0; 
+  const daysSaved = daysNeededBase - daysNeeded;
+
+  // 🌟 ฟีเจอร์ใหม่: คำนวณว่าถ้าช้ากว่าแผน ต้องทำ OT เท่าไหร่ถึงจะทัน
+  let requiredOTText = null;
+  if (tw > 0 && tDays > 0 && baseTeamOutput > 0) {
+    const requiredDailyOutput = (tw * 1.1) / tDays;
+    if (baseTeamOutput < requiredDailyOutput) {
+      const deficit = requiredDailyOutput - baseTeamOutput;
+      const outputPerHour = baseTeamOutput / 8;
+      const otNeeded = deficit / outputPerHour;
+      requiredOTText = otNeeded.toFixed(1);
+    }
+  }
 
   const toggle = (id) => setSelectedIds(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
 
@@ -456,6 +470,20 @@ function PredictTab({ workers, projects }) {
               </TouchableOpacity>
             ))}
           </View>
+
+          {/* 🌟 ฟีเจอร์ใหม่: กล่องแจ้งเตือนจำนวนชั่วโมง OT ที่ต้องทำเพื่อให้ทันแผน */}
+          {requiredOTText && tDays > 0 && (
+            <View style={{ marginTop: 12, backgroundColor: '#F0F9FF', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#BAE6FD', alignItems: 'center' }}>
+               <Text style={{ fontSize: 13, color: '#0369A1' }}>
+                 🎯 เพื่อให้เสร็จทันแผน ({tDays} วัน) ต้องทำ OT วันละ <Text style={{fontWeight: 'bold', fontSize: 16}}>{requiredOTText}</Text> ชม.
+               </Text>
+               {parseFloat(requiredOTText) > 4 && (
+                 <Text style={{ fontSize: 11, color: '#0284C7', marginTop: 4 }}>
+                   *หมายเหตุ: จำนวนชั่วโมงสูงเกินไป แนะนำให้เพิ่มช่างเข้าทีมแทนการฝืนทำ OT
+                 </Text>
+               )}
+            </View>
+          )}
         </Card>
       )}
 
@@ -476,7 +504,6 @@ function PredictTab({ workers, projects }) {
               </View>
             </View>
 
-            {/* 🌟 แสดงส่วนสรุปยอดจ่ายทั้งหมด (Grand Total) */}
             {daysNeeded > 0 && (
               <View style={{ backgroundColor: '#ECFCCB', padding: 12, borderRadius: 10, marginTop: 14 }}>
                 <Text style={{ fontSize: 14, fontWeight: 'bold', color: '#4D7C0F', marginBottom: 5 }}>💰 ประมาณการต้นทุนโปรเจกต์นี้</Text>
@@ -502,8 +529,15 @@ function PredictTab({ workers, projects }) {
                     {daysNeeded <= tDays ? '✅ ทีมนี้ทำงานเสร็จทันตามแผน!' : '⚠️ ทีมนี้อาจทำงานล่าช้ากว่าแผน (Behind Schedule)'}
                   </Text>
                   <Text style={{ fontSize: 12, color: C.textSec, marginTop: 4, textAlign: 'center' }}>
-                    ทีมใช้เวลาจริงประมาณ {daysNeeded} วัน {otHours > 0 && `(ประหยัดเวลาลงเพราะ OT)`}
+                    ทีมใช้เวลาจริงประมาณ {daysNeeded} วัน
                   </Text>
+                  
+                  {/* 🌟 ฟีเจอร์ใหม่: แจ้งบอกว่าประหยัดวันไปได้เท่าไหร่ */}
+                  {otHours > 0 && daysSaved > 0 && (
+                    <Text style={{ fontSize: 12, color: '#059669', marginTop: 2, textAlign: 'center', fontWeight: 'bold' }}>
+                      ⏳ ลดระยะเวลาลงได้ {daysSaved} วัน (จากการทำ OT)
+                    </Text>
+                  )}
                 </View>
               </View>
             )}
