@@ -11,13 +11,48 @@ let _db = null;
 
 export async function getDB() {
   if (_db) return _db;
-  _db = await SQLite.openDatabaseAsync('contrack.db');
+  _db = await SQLite.openDatabaseAsync('contrack_v5.db'); // รีเซ็ตฐานข้อมูลล้างคิวเก่า
   await _db.execAsync('PRAGMA journal_mode = WAL;');
   await _db.execAsync('PRAGMA foreign_keys = ON;');
   await initSchema(_db);
   return _db;
 }
 
+// ============================================================
+// ด่านตรวจอัจฉริยะ: ดักจับและซ่อมแซมข้อมูลก่อนเข้า SQLite (ป้องกัน Crash 100%)
+// ============================================================
+const cleanParam = (v) => {
+  if (v === undefined || v === null) return null;
+  if (typeof v === 'number') return Number.isNaN(v) ? 0 : v;
+  if (typeof v === 'boolean') return v ? 1 : 0;
+  if (v instanceof Date) return v.toISOString();
+  if (typeof v === 'object') return JSON.stringify(v);
+  return String(v);
+};
+
+const cleanArray = (args) => {
+  if (args.length === 1 && Array.isArray(args[0])) return args[0].map(cleanParam);
+  return args.map(cleanParam);
+};
+
+export async function dbRun(sql, ...args) {
+  const db = await getDB();
+  return await db.runAsync(sql, ...cleanArray(args));
+}
+
+export async function dbGetFirst(sql, ...args) {
+  const db = await getDB();
+  return await db.getFirstAsync(sql, ...cleanArray(args));
+}
+
+export async function dbGetAll(sql, ...args) {
+  const db = await getDB();
+  return await db.getAllAsync(sql, ...cleanArray(args));
+}
+
+// ============================================================
+// SCHEMA INITIALIZATION
+// ============================================================
 async function initSchema(db) {
   await db.execAsync(`
     CREATE TABLE IF NOT EXISTS profiles (
@@ -116,16 +151,14 @@ async function initSchema(db) {
 // ============================================================
 // Helpers
 // ============================================================
-async function enqueue(db, tableName, action, rowId, payload) {
-  await db.runAsync(
-    `INSERT INTO sync_queue (table_name, action, row_id, payload, created_at)
-     VALUES (?, ?, ?, ?, ?)`,
-    [tableName, action, rowId, JSON.stringify(payload), now()]
+async function enqueue(tableName, action, rowId, payload) {
+  await dbRun(
+    `INSERT INTO sync_queue (table_name, action, row_id, payload, created_at) VALUES (?, ?, ?, ?, ?)`,
+    tableName, action, rowId, JSON.stringify(payload), now()
   );
 }
 
 async function insertRow(tableName, data) {
-  const db = await getDB();
   const row = {
     id: data.id || newUUID(),
     created_at: now(),
@@ -138,37 +171,29 @@ async function insertRow(tableName, data) {
   const placeholders = keys.map(() => '?').join(',');
   const values = keys.map(k => row[k]);
 
-  await db.runAsync(
-    `INSERT INTO ${tableName} (${keys.join(',')}) VALUES (${placeholders})`,
-    values
-  );
+  await dbRun(`INSERT INTO ${tableName} (${keys.join(',')}) VALUES (${placeholders})`, values);
 
   const { sync_status, ...cloudPayload } = row;
-  await enqueue(db, tableName, 'insert', row.id, cloudPayload);
+  await enqueue(tableName, 'insert', row.id, cloudPayload);
   return row;
 }
 
 async function updateRow(tableName, id, data) {
-  const db = await getDB();
   const updates = { ...data, updated_at: now(), sync_status: 'pending' };
 
   const keys = Object.keys(updates);
   const setClause = keys.map(k => `${k}=?`).join(',');
   const values = [...keys.map(k => updates[k]), id];
 
-  await db.runAsync(
-    `UPDATE ${tableName} SET ${setClause} WHERE id=?`,
-    values
-  );
+  await dbRun(`UPDATE ${tableName} SET ${setClause} WHERE id=?`, values);
 
   const { sync_status, ...cloudPayload } = updates;
-  await enqueue(db, tableName, 'update', id, { id, ...cloudPayload });
+  await enqueue(tableName, 'update', id, { id, ...cloudPayload });
 }
 
 async function deleteRow(tableName, id) {
-  const db = await getDB();
-  await db.runAsync(`DELETE FROM ${tableName} WHERE id=?`, [id]);
-  await enqueue(db, tableName, 'delete', id, { id });
+  await dbRun(`DELETE FROM ${tableName} WHERE id=?`, id);
+  await enqueue(tableName, 'delete', id, { id });
 }
 
 export { insertRow, updateRow, deleteRow, enqueue };
@@ -201,7 +226,6 @@ export async function deleteProject(id) {
 }
 
 export async function getAllProjects(statusFilter) {
-  const db = await getDB();
   let sql = `
     SELECT p.*,
       (SELECT COUNT(*) FROM tasks WHERE project_id=p.id) AS task_count,
@@ -215,20 +239,15 @@ export async function getAllProjects(statusFilter) {
     params.push(statusFilter);
   }
   sql += ' ORDER BY p.created_at DESC';
-  return await db.getAllAsync(sql, params);
+  return await dbGetAll(sql, params);
 }
 
 export async function getProjectById(id) {
-  const db = await getDB();
-  const project = await db.getFirstAsync('SELECT * FROM projects WHERE id=?', [id]);
+  const project = await dbGetFirst('SELECT * FROM projects WHERE id=?', id);
   if (!project) return null;
 
-  const tasks = await db.getAllAsync(
-    'SELECT * FROM tasks WHERE project_id=? ORDER BY created_at DESC', [id]
-  );
-  const documents = await db.getAllAsync(
-    'SELECT * FROM documents WHERE project_id=? ORDER BY created_at DESC', [id]
-  );
+  const tasks = await dbGetAll('SELECT * FROM tasks WHERE project_id=? ORDER BY created_at DESC', id);
+  const documents = await dbGetAll('SELECT * FROM documents WHERE project_id=? ORDER BY created_at DESC', id);
   return { ...project, tasks, documents };
 }
 
@@ -248,8 +267,7 @@ export async function createTask(data) {
 }
 
 export async function toggleTask(id) {
-  const db = await getDB();
-  const task = await db.getFirstAsync('SELECT status FROM tasks WHERE id=?', [id]);
+  const task = await dbGetFirst('SELECT status FROM tasks WHERE id=?', id);
   if (!task) return;
   const newStatus = task.status === 'done' ? 'todo' : 'done';
   await updateRow('tasks', id, { status: newStatus });
@@ -274,7 +292,6 @@ export async function createDocument(data) {
 }
 
 export async function getAllDocuments(categoryFilter) {
-  const db = await getDB();
   let sql = `
     SELECT d.*, p.name AS project_name
     FROM documents d
@@ -286,7 +303,7 @@ export async function getAllDocuments(categoryFilter) {
     params.push(categoryFilter);
   }
   sql += ' ORDER BY d.created_at DESC';
-  return await db.getAllAsync(sql, params);
+  return await dbGetAll(sql, params);
 }
 
 export async function deleteDocument(id) {
@@ -328,12 +345,9 @@ export async function createWorkerRecord(data) {
 }
 
 export async function getWorkersWithRecords() {
-  const db = await getDB();
-  const workers = await db.getAllAsync('SELECT * FROM workers ORDER BY name ASC');
+  const workers = await dbGetAll('SELECT * FROM workers ORDER BY name ASC');
   for (const w of workers) {
-    w.records = await db.getAllAsync(
-      'SELECT * FROM worker_records WHERE worker_id=? ORDER BY date DESC', [w.id]
-    );
+    w.records = await dbGetAll('SELECT * FROM worker_records WHERE worker_id=? ORDER BY date DESC', w.id);
   }
   return workers;
 }
@@ -342,22 +356,19 @@ export async function getWorkersWithRecords() {
 // DASHBOARD
 // ============================================================
 export async function getDashboardStats() {
-  const db = await getDB();
-  const p = await db.getFirstAsync(`
+  const p = await dbGetFirst(`
     SELECT COUNT(*) AS total,
       SUM(CASE WHEN status='active' THEN 1 ELSE 0 END) AS active,
       SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) AS completed,
       SUM(CASE WHEN status='planning' THEN 1 ELSE 0 END) AS planning
     FROM projects
   `);
-  const t = await db.getFirstAsync(`
+  const t = await dbGetFirst(`
     SELECT COUNT(*) AS total,
       SUM(CASE WHEN priority='urgent' AND status!='done' THEN 1 ELSE 0 END) AS urgent
     FROM tasks
   `);
-  const recent = await db.getAllAsync(
-    'SELECT * FROM projects ORDER BY created_at DESC LIMIT 5'
-  );
+  const recent = await dbGetAll('SELECT * FROM projects ORDER BY created_at DESC LIMIT 5');
   return { projects: p, tasks: t, recentProjects: recent };
 }
 
