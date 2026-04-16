@@ -1,25 +1,21 @@
-// src/SyncStatusBar.js
+// SyncStatusBar.js
 // ============================================================
-// แถบแสดงสถานะ sync (ออฟไลน์ / มีข้อมูลค้าง / sync เสร็จ)
-// วางด้านบนของแอปให้ user เห็นตลอด
+// แถบสถานะ sync ด้านบนของแอป
 // ============================================================
 
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { Text, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useNetwork } from './Usenetwork';
-import { getPendingCount, syncAll } from './Syncengine';
+import { useNetwork } from './useNetwork';
+import { getPendingCount, syncAll } from './syncEngine';
 
 export default function SyncStatusBar() {
   const { isOnline } = useNetwork();
   const [pending, setPending] = useState(0);
   const [syncing, setSyncing] = useState(false);
 
-  // อัปเดต pending count ทุก 5 วิ
   useEffect(() => {
-    const update = async () => {
-      setPending(await getPendingCount());
-    };
+    const update = async () => setPending(await getPendingCount());
     update();
     const id = setInterval(update, 5000);
     return () => clearInterval(id);
@@ -33,18 +29,14 @@ export default function SyncStatusBar() {
     setSyncing(false);
   };
 
-  // ถ้าออนไลน์และไม่มีของค้าง → ไม่แสดง
   if (isOnline && pending === 0 && !syncing) return null;
 
-  // ==== UI ====
   const bgColor = !isOnline ? '#F59E0B' : pending > 0 ? '#3B82F6' : '#10B981';
   const icon = !isOnline ? 'cloud-offline' : pending > 0 ? 'cloud-upload' : 'cloud-done';
   const text = !isOnline
     ? `ออฟไลน์ ${pending > 0 ? `(ข้อมูลค้าง ${pending})` : ''}`
-    : syncing
-    ? 'กำลัง sync...'
-    : pending > 0
-    ? `มีข้อมูลรอ sync ${pending} รายการ`
+    : syncing ? 'กำลัง sync...'
+    : pending > 0 ? `มีข้อมูลรอ sync ${pending} รายการ`
     : 'sync เสร็จแล้ว';
 
   return (
@@ -62,14 +54,12 @@ export default function SyncStatusBar() {
         gap: 8,
       }}
     >
-      {syncing ? (
-        <ActivityIndicator size="small" color="#fff" />
-      ) : (
-        <Ionicons name={icon} size={14} color="#fff" />
-      )}
+      {syncing
+        ? <ActivityIndicator size="small" color="#fff" />
+        : <Ionicons name={icon} size={14} color="#fff" />}
       <Text style={{ color: '#fff', fontSize: 12, fontWeight: '600' }}>{text}</Text>
       {isOnline && pending > 0 && !syncing && (
-        <Text style={{ color: '#fff', fontSize: 11, opacity: 0.8 }}>(แตะเพื่อ sync ทันที)</Text>
+        <Text style={{ color: '#fff', fontSize: 11, opacity: 0.8 }}>(แตะเพื่อ sync)</Text>
       )}
     </TouchableOpacity>
   );

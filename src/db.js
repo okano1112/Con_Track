@@ -1,20 +1,12 @@
-// src/db.js
+// db.js
 // ============================================================
 // Database Layer (SQLite) - Offline First
-//
-// หลักการ:
-// 1. ทุกการอ่าน/เขียน ทำกับ SQLite เท่านั้น (เร็ว + offline ได้)
-// 2. ทุกการเขียน จะเพิ่มเข้า sync_queue อัตโนมัติ
-// 3. syncEngine จะค่อยๆ ส่งข้อมูลใน queue ขึ้น Supabase ทีหลัง
-// 4. ใช้ UUID แทน AUTOINCREMENT เพื่อกัน id ชนกัน
+// ทุกการเขียนจะเข้า sync_queue อัตโนมัติ
 // ============================================================
 
 import * as SQLite from 'expo-sqlite';
 import { newUUID, now } from './utils';
 
-// ============================================================
-// เปิด/สร้าง database
-// ============================================================
 let _db = null;
 
 export async function getDB() {
@@ -26,191 +18,94 @@ export async function getDB() {
   return _db;
 }
 
-// ============================================================
-// สร้างตารางทั้งหมด (ตรงกับ Supabase schema)
-// ============================================================
 async function initSchema(db) {
   await db.execAsync(`
-    -- ========== profiles ==========
     CREATE TABLE IF NOT EXISTS profiles (
-      id TEXT PRIMARY KEY,
-      custom_id TEXT UNIQUE NOT NULL,
-      full_name TEXT NOT NULL,
-      phone TEXT DEFAULT '',
-      address TEXT DEFAULT '',
-      avatar_url TEXT DEFAULT '',
-      created_at TEXT,
-      updated_at TEXT,
-      sync_status TEXT DEFAULT 'synced'
+      id TEXT PRIMARY KEY, custom_id TEXT UNIQUE NOT NULL, full_name TEXT NOT NULL,
+      phone TEXT DEFAULT '', address TEXT DEFAULT '', avatar_url TEXT DEFAULT '',
+      created_at TEXT, updated_at TEXT, sync_status TEXT DEFAULT 'synced'
     );
 
-    -- ========== projects ==========
     CREATE TABLE IF NOT EXISTS projects (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      description TEXT DEFAULT '',
-      location TEXT DEFAULT '',
-      latitude REAL,
-      longitude REAL,
-      budget REAL DEFAULT 0,
-      start_date TEXT,
-      end_date TEXT,
-      progress INTEGER DEFAULT 0,
-      status TEXT DEFAULT 'planning',
-      owner_id TEXT,
-      created_at TEXT,
-      updated_at TEXT,
-      sync_status TEXT DEFAULT 'pending'
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT DEFAULT '',
+      location TEXT DEFAULT '', latitude REAL, longitude REAL, budget REAL DEFAULT 0,
+      start_date TEXT, end_date TEXT, progress INTEGER DEFAULT 0,
+      status TEXT DEFAULT 'planning', owner_id TEXT,
+      created_at TEXT, updated_at TEXT, sync_status TEXT DEFAULT 'pending'
     );
 
-    -- ========== project_members ==========
     CREATE TABLE IF NOT EXISTS project_members (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      user_id TEXT NOT NULL,
-      role TEXT NOT NULL,
-      permissions TEXT DEFAULT '{}',
-      company_name TEXT DEFAULT '',
-      is_external INTEGER DEFAULT 0,
-      joined_at TEXT,
-      updated_at TEXT,
+      id TEXT PRIMARY KEY, project_id TEXT NOT NULL, user_id TEXT NOT NULL,
+      role TEXT NOT NULL, permissions TEXT DEFAULT '{}', company_name TEXT DEFAULT '',
+      is_external INTEGER DEFAULT 0, joined_at TEXT, updated_at TEXT,
       sync_status TEXT DEFAULT 'pending'
     );
 
-    -- ========== tasks ==========
     CREATE TABLE IF NOT EXISTS tasks (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      assigned_to TEXT,
-      title TEXT NOT NULL,
-      description TEXT DEFAULT '',
-      priority TEXT DEFAULT 'medium',
-      status TEXT DEFAULT 'todo',
-      due_date TEXT,
-      created_at TEXT,
-      updated_at TEXT,
-      sync_status TEXT DEFAULT 'pending'
+      id TEXT PRIMARY KEY, project_id TEXT NOT NULL, assigned_to TEXT,
+      title TEXT NOT NULL, description TEXT DEFAULT '',
+      priority TEXT DEFAULT 'medium', status TEXT DEFAULT 'todo', due_date TEXT,
+      created_at TEXT, updated_at TEXT, sync_status TEXT DEFAULT 'pending'
     );
 
-    -- ========== gantt_tasks ==========
     CREATE TABLE IF NOT EXISTS gantt_tasks (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      parent_id TEXT,
-      name TEXT NOT NULL,
-      start_date TEXT NOT NULL,
-      end_date TEXT NOT NULL,
-      duration_days INTEGER DEFAULT 1,
-      progress INTEGER DEFAULT 0,
-      depends_on TEXT,
-      is_milestone INTEGER DEFAULT 0,
-      assigned_to TEXT,
-      sort_order INTEGER DEFAULT 0,
-      color TEXT DEFAULT '#3B82F6',
-      notes TEXT DEFAULT '',
-      created_at TEXT,
-      updated_at TEXT,
-      sync_status TEXT DEFAULT 'pending'
+      id TEXT PRIMARY KEY, project_id TEXT NOT NULL, parent_id TEXT,
+      name TEXT NOT NULL, start_date TEXT NOT NULL, end_date TEXT NOT NULL,
+      duration_days INTEGER DEFAULT 1, progress INTEGER DEFAULT 0,
+      depends_on TEXT, is_milestone INTEGER DEFAULT 0, assigned_to TEXT,
+      sort_order INTEGER DEFAULT 0, color TEXT DEFAULT '#3B82F6', notes TEXT DEFAULT '',
+      created_at TEXT, updated_at TEXT, sync_status TEXT DEFAULT 'pending'
     );
 
-    -- ========== documents ==========
     CREATE TABLE IF NOT EXISTS documents (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      uploaded_by TEXT,
-      name TEXT NOT NULL,
-      category TEXT DEFAULT 'other',
-      file_url TEXT DEFAULT '',
-      notes TEXT DEFAULT '',
-      created_at TEXT,
-      updated_at TEXT,
-      sync_status TEXT DEFAULT 'pending'
+      id TEXT PRIMARY KEY, project_id TEXT NOT NULL, uploaded_by TEXT,
+      name TEXT NOT NULL, category TEXT DEFAULT 'other',
+      file_url TEXT DEFAULT '', notes TEXT DEFAULT '',
+      created_at TEXT, updated_at TEXT, sync_status TEXT DEFAULT 'pending'
     );
 
-    -- ========== workers ==========
     CREATE TABLE IF NOT EXISTS workers (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      role TEXT DEFAULT '',
-      nationality TEXT DEFAULT 'ไทย',
-      gender TEXT DEFAULT 'ชาย',
-      age INTEGER DEFAULT 0,
-      daily_wage REAL DEFAULT 0,
-      experience_years INTEGER DEFAULT 0,
-      employment_status TEXT DEFAULT 'พนักงานรายวัน',
-      phone TEXT DEFAULT '',
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, role TEXT DEFAULT '',
+      nationality TEXT DEFAULT 'ไทย', gender TEXT DEFAULT 'ชาย', age INTEGER DEFAULT 0,
+      daily_wage REAL DEFAULT 0, experience_years INTEGER DEFAULT 0,
+      employment_status TEXT DEFAULT 'พนักงานรายวัน', phone TEXT DEFAULT '',
       avatar_url TEXT DEFAULT '',
-      created_at TEXT,
-      updated_at TEXT,
-      sync_status TEXT DEFAULT 'pending'
+      created_at TEXT, updated_at TEXT, sync_status TEXT DEFAULT 'pending'
     );
 
-    -- ========== worker_records ==========
     CREATE TABLE IF NOT EXISTS worker_records (
-      id TEXT PRIMARY KEY,
-      worker_id TEXT NOT NULL,
-      work_type TEXT DEFAULT '',
-      date TEXT,
-      output REAL DEFAULT 0,
-      quality REAL DEFAULT 0,
-      ot_hours REAL DEFAULT 0,
-      ot_amount REAL DEFAULT 0,
-      created_at TEXT,
-      updated_at TEXT,
-      sync_status TEXT DEFAULT 'pending'
+      id TEXT PRIMARY KEY, worker_id TEXT NOT NULL, work_type TEXT DEFAULT '',
+      date TEXT, output REAL DEFAULT 0, quality REAL DEFAULT 0,
+      ot_hours REAL DEFAULT 0, ot_amount REAL DEFAULT 0,
+      created_at TEXT, updated_at TEXT, sync_status TEXT DEFAULT 'pending'
     );
 
-    -- ========== diary_reports ==========
     CREATE TABLE IF NOT EXISTS diary_reports (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      reported_by TEXT,
-      report_date TEXT NOT NULL,
-      work_summary TEXT DEFAULT '',
-      workers_count INTEGER DEFAULT 0,
-      weather_data TEXT,
-      obstacles TEXT DEFAULT '',
-      photos TEXT DEFAULT '[]',
+      id TEXT PRIMARY KEY, project_id TEXT NOT NULL, reported_by TEXT,
+      report_date TEXT NOT NULL, work_summary TEXT DEFAULT '',
+      workers_count INTEGER DEFAULT 0, weather_data TEXT,
+      obstacles TEXT DEFAULT '', photos TEXT DEFAULT '[]',
       progress_percent INTEGER DEFAULT 0,
-      created_at TEXT,
-      updated_at TEXT,
-      sync_status TEXT DEFAULT 'pending'
+      created_at TEXT, updated_at TEXT, sync_status TEXT DEFAULT 'pending'
     );
 
-    -- ========== weather_logs ==========
     CREATE TABLE IF NOT EXISTS weather_logs (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      diary_report_id TEXT,
-      confirmed_by TEXT,
-      event_time TEXT NOT NULL,
-      latitude REAL,
-      longitude REAL,
-      rain_mm REAL,
-      wind_speed REAL,
-      temperature REAL,
-      weather_code INTEGER,
-      api_source TEXT DEFAULT 'Open-Meteo',
-      raw_data TEXT,
-      action_taken TEXT DEFAULT '',
-      note TEXT DEFAULT '',
-      created_at TEXT,
-      sync_status TEXT DEFAULT 'pending'
+      id TEXT PRIMARY KEY, project_id TEXT NOT NULL, diary_report_id TEXT,
+      confirmed_by TEXT, event_time TEXT NOT NULL, latitude REAL, longitude REAL,
+      rain_mm REAL, wind_speed REAL, temperature REAL, weather_code INTEGER,
+      api_source TEXT DEFAULT 'Open-Meteo', raw_data TEXT,
+      action_taken TEXT DEFAULT '', note TEXT DEFAULT '',
+      created_at TEXT, sync_status TEXT DEFAULT 'pending'
     );
 
-    -- ========== sync_queue (คิวรอ sync) ==========
     CREATE TABLE IF NOT EXISTS sync_queue (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      table_name TEXT NOT NULL,
-      action TEXT NOT NULL,        -- 'insert' | 'update' | 'delete'
-      row_id TEXT NOT NULL,        -- UUID ของ row ที่จะ sync
-      payload TEXT NOT NULL,       -- JSON ข้อมูล
-      created_at TEXT NOT NULL,
-      retry_count INTEGER DEFAULT 0,
+      table_name TEXT NOT NULL, action TEXT NOT NULL,
+      row_id TEXT NOT NULL, payload TEXT NOT NULL,
+      created_at TEXT NOT NULL, retry_count INTEGER DEFAULT 0,
       last_error TEXT DEFAULT ''
     );
 
-    -- index เพิ่มความเร็ว
     CREATE INDEX IF NOT EXISTS idx_sync_queue_table ON sync_queue(table_name, row_id);
     CREATE INDEX IF NOT EXISTS idx_projects_updated ON projects(updated_at);
     CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id);
@@ -219,7 +114,7 @@ async function initSchema(db) {
 }
 
 // ============================================================
-// 🔧 Helper: เพิ่มรายการเข้า sync_queue
+// Helpers
 // ============================================================
 async function enqueue(db, tableName, action, rowId, payload) {
   await db.runAsync(
@@ -229,11 +124,6 @@ async function enqueue(db, tableName, action, rowId, payload) {
   );
 }
 
-// ============================================================
-// 🔧 Helper: สร้าง INSERT แบบ generic
-// - สร้าง UUID + วันที่ ให้อัตโนมัติ
-// - เพิ่มเข้า sync_queue
-// ============================================================
 async function insertRow(tableName, data) {
   const db = await getDB();
   const row = {
@@ -244,7 +134,6 @@ async function insertRow(tableName, data) {
     ...data,
   };
 
-  // สร้าง SQL dynamic
   const keys = Object.keys(row);
   const placeholders = keys.map(() => '?').join(',');
   const values = keys.map(k => row[k]);
@@ -254,16 +143,11 @@ async function insertRow(tableName, data) {
     values
   );
 
-  // ส่ง payload ขึ้น cloud (ไม่เอา sync_status ไปด้วย เพราะ Supabase ไม่มีคอลัมน์นี้)
   const { sync_status, ...cloudPayload } = row;
   await enqueue(db, tableName, 'insert', row.id, cloudPayload);
-
   return row;
 }
 
-// ============================================================
-// 🔧 Helper: UPDATE แบบ generic
-// ============================================================
 async function updateRow(tableName, id, data) {
   const db = await getDB();
   const updates = { ...data, updated_at: now(), sync_status: 'pending' };
@@ -281,22 +165,16 @@ async function updateRow(tableName, id, data) {
   await enqueue(db, tableName, 'update', id, { id, ...cloudPayload });
 }
 
-// ============================================================
-// 🔧 Helper: DELETE แบบ generic
-// ============================================================
 async function deleteRow(tableName, id) {
   const db = await getDB();
   await db.runAsync(`DELETE FROM ${tableName} WHERE id=?`, [id]);
   await enqueue(db, tableName, 'delete', id, { id });
 }
 
-// ============================================================
-// 🌟 Export ฟังก์ชันกลางให้ module อื่นใช้
-// ============================================================
 export { insertRow, updateRow, deleteRow, enqueue };
 
 // ============================================================
-// ==================== PROJECTS ====================
+// PROJECTS
 // ============================================================
 export async function createProject(data) {
   return await insertRow('projects', {
@@ -346,18 +224,16 @@ export async function getProjectById(id) {
   if (!project) return null;
 
   const tasks = await db.getAllAsync(
-    'SELECT * FROM tasks WHERE project_id=? ORDER BY created_at DESC',
-    [id]
+    'SELECT * FROM tasks WHERE project_id=? ORDER BY created_at DESC', [id]
   );
   const documents = await db.getAllAsync(
-    'SELECT * FROM documents WHERE project_id=? ORDER BY created_at DESC',
-    [id]
+    'SELECT * FROM documents WHERE project_id=? ORDER BY created_at DESC', [id]
   );
   return { ...project, tasks, documents };
 }
 
 // ============================================================
-// ==================== TASKS ====================
+// TASKS
 // ============================================================
 export async function createTask(data) {
   return await insertRow('tasks', {
@@ -384,7 +260,7 @@ export async function deleteTask(id) {
 }
 
 // ============================================================
-// ==================== DOCUMENTS ====================
+// DOCUMENTS
 // ============================================================
 export async function createDocument(data) {
   return await insertRow('documents', {
@@ -418,7 +294,7 @@ export async function deleteDocument(id) {
 }
 
 // ============================================================
-// ==================== WORKERS ====================
+// WORKERS
 // ============================================================
 export async function createWorker(data) {
   return await insertRow('workers', {
@@ -454,19 +330,16 @@ export async function createWorkerRecord(data) {
 export async function getWorkersWithRecords() {
   const db = await getDB();
   const workers = await db.getAllAsync('SELECT * FROM workers ORDER BY name ASC');
-
-  // แนบ records แต่ละคน
   for (const w of workers) {
     w.records = await db.getAllAsync(
-      'SELECT * FROM worker_records WHERE worker_id=? ORDER BY date DESC',
-      [w.id]
+      'SELECT * FROM worker_records WHERE worker_id=? ORDER BY date DESC', [w.id]
     );
   }
   return workers;
 }
 
 // ============================================================
-// ==================== DASHBOARD STATS ====================
+// DASHBOARD
 // ============================================================
 export async function getDashboardStats() {
   const db = await getDB();
@@ -489,9 +362,8 @@ export async function getDashboardStats() {
 }
 
 // ============================================================
-// ==================== MAINTENANCE ====================
+// MAINTENANCE
 // ============================================================
-// ล้างข้อมูลทั้งหมด (ใช้ตอน logout ถ้าอยากล้าง local)
 export async function clearAllData() {
   const db = await getDB();
   await db.execAsync(`
