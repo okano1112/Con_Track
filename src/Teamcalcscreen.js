@@ -115,7 +115,7 @@ export default function TeamCalcScreen({ navigation }) {
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <Header title="จัดทีมและทำนายผลผลิต" onBack={() => navigation.goBack()} />
+      <Header title="จัดทีมและทำนายผลผลิต" onBack={() => navigation.openDrawer()} />
 
       <View style={{
         flexDirection: 'row', backgroundColor: C.white,
