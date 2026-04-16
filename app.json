@@ -1,5 +1,6 @@
 {
   "expo": {
+    "scheme": "contrack",
     "name": "ConTrack",
     "slug": "Con_Track",
     "version": "1.0.0",
