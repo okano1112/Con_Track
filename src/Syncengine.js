@@ -5,7 +5,7 @@
 
 import NetInfo from '@react-native-community/netinfo';
 import { supabase } from './supabaseClient';
-import { getDB } from './db';
+import { dbRun, dbGetFirst, dbGetAll } from './db';
 import { checkOnline } from './useNetwork';
 
 let isSyncing = false;
@@ -25,14 +25,10 @@ export async function push() {
   if (!online) return { pushed: 0, failed: 0 };
 
   isSyncing = true;
-  const db = await getDB();
   let pushed = 0, failed = 0;
 
   try {
-    const items = await db.getAllAsync(
-      `SELECT * FROM sync_queue WHERE retry_count < ? ORDER BY id ASC LIMIT 50`,
-      [MAX_RETRY]
-    );
+    const items = await dbGetAll(`SELECT * FROM sync_queue WHERE retry_count < ? ORDER BY id ASC LIMIT 50`, MAX_RETRY);
 
     for (const item of items) {
       try {
@@ -42,43 +38,31 @@ export async function push() {
         normalizePayload(item.table_name, payload);
 
         if (item.action === 'insert') {
-          const res = await supabase.from(item.table_name)
-            .upsert(payload, { onConflict: 'id' });
+          const res = await supabase.from(item.table_name).upsert(payload, { onConflict: 'id' });
           error = res.error;
         } else if (item.action === 'update') {
           const { id, ...updateData } = payload;
-          const res = await supabase.from(item.table_name)
-            .update(updateData).eq('id', id);
+          const res = await supabase.from(item.table_name).update(updateData).eq('id', id);
           error = res.error;
         } else if (item.action === 'delete') {
-          const res = await supabase.from(item.table_name)
-            .delete().eq('id', payload.id);
+          const res = await supabase.from(item.table_name).delete().eq('id', payload.id);
           error = res.error;
         }
 
         if (error) {
-          await db.runAsync(
-            `UPDATE sync_queue SET retry_count = retry_count + 1, last_error = ? WHERE id = ?`,
-            [error.message || String(error), item.id]
-          );
+          await dbRun(`UPDATE sync_queue SET retry_count = retry_count + 1, last_error = ? WHERE id = ?`, error.message || String(error), item.id);
           failed++;
           console.log(`[Sync] ${item.table_name} ${item.action} failed:`, error.message);
         } else {
-          await db.runAsync('DELETE FROM sync_queue WHERE id=?', [item.id]);
+          await dbRun('DELETE FROM sync_queue WHERE id=?', item.id);
           if (item.action !== 'delete') {
-            await db.runAsync(
-              `UPDATE ${item.table_name} SET sync_status='synced' WHERE id=?`,
-              [item.row_id]
-            ).catch(() => {});
+            await dbRun(`UPDATE ${item.table_name} SET sync_status='synced' WHERE id=?`, item.row_id).catch(() => {});
           }
           pushed++;
         }
       } catch (e) {
         console.log('[Sync] push error:', e);
-        await db.runAsync(
-          `UPDATE sync_queue SET retry_count = retry_count + 1, last_error = ? WHERE id = ?`,
-          [e.message, item.id]
-        );
+        await dbRun(`UPDATE sync_queue SET retry_count = retry_count + 1, last_error = ? WHERE id = ?`, e.message, item.id);
         failed++;
       }
     }
@@ -96,19 +80,18 @@ export async function pull() {
   const online = await checkOnline();
   if (!online) return { pulled: 0 };
 
-  const db = await getDB();
   let pulled = 0;
 
   try {
     for (const table of SYNC_TABLES) {
       try {
-        const latest = await db.getFirstAsync(
-          `SELECT MAX(updated_at) AS max_updated FROM ${table}`
-        );
-        const since = latest?.max_updated || '1970-01-01T00:00:00Z';
+        // เงื่อนไขพิเศษ: weather_logs ใช้ created_at แทน updated_at
+        const timeCol = table === 'weather_logs' ? 'created_at' : 'updated_at';
+        
+        const latest = await dbGetFirst(`SELECT MAX(${timeCol}) AS max_time FROM ${table}`);
+        const since = latest?.max_time || '1970-01-01T00:00:00Z';
 
-        const { data, error } = await supabase.from(table)
-          .select('*').gt('updated_at', since).limit(500);
+        const { data, error } = await supabase.from(table).select('*').gt(timeCol, since).limit(500);
 
         if (error) {
           console.log(`[Sync] pull ${table} error:`, error.message);
@@ -117,7 +100,7 @@ export async function pull() {
 
         if (data && data.length > 0) {
           for (const row of data) {
-            await upsertLocal(db, table, row);
+            await upsertLocal(table, row);
             pulled++;
           }
         }
@@ -135,19 +118,17 @@ export async function pull() {
 // ============================================================
 // Helpers
 // ============================================================
-async function upsertLocal(db, table, row) {
+async function upsertLocal(table, row) {
   for (const key of Object.keys(row)) {
     if (typeof row[key] === 'boolean') row[key] = row[key] ? 1 : 0;
-    if (row[key] && typeof row[key] === 'object') {
-      row[key] = JSON.stringify(row[key]);
-    }
+    if (row[key] && typeof row[key] === 'object') row[key] = JSON.stringify(row[key]);
   }
 
-  const existing = await db.getFirstAsync(
-    `SELECT updated_at FROM ${table} WHERE id=?`, [row.id]
-  );
-
-  if (existing && existing.updated_at > row.updated_at) return;
+  // เงื่อนไขพิเศษ: weather_logs เช็กจาก created_at
+  const timeCol = table === 'weather_logs' ? 'created_at' : 'updated_at';
+  const existing = await dbGetFirst(`SELECT ${timeCol} FROM ${table} WHERE id=?`, row.id);
+  
+  if (existing && existing[timeCol] > row[timeCol]) return;
 
   const rowWithStatus = { ...row, sync_status: 'synced' };
   const keys = Object.keys(rowWithStatus);
@@ -155,32 +136,19 @@ async function upsertLocal(db, table, row) {
   const updates = keys.map(k => `${k}=excluded.${k}`).join(',');
   const values = keys.map(k => rowWithStatus[k]);
 
-  await db.runAsync(
-    `INSERT INTO ${table} (${keys.join(',')}) VALUES (${placeholders})
-     ON CONFLICT(id) DO UPDATE SET ${updates}`,
+  await dbRun(
+    `INSERT INTO ${table} (${keys.join(',')}) VALUES (${placeholders}) ON CONFLICT(id) DO UPDATE SET ${updates}`,
     values
   );
 }
 
 function normalizePayload(tableName, payload) {
-  const booleanFields = {
-    project_members: ['is_external'],
-    gantt_tasks: ['is_milestone'],
-  };
-  const jsonFields = {
-    project_members: ['permissions'],
-    diary_reports: ['weather_data', 'photos'],
-    weather_logs: ['raw_data'],
-  };
+  const booleanFields = { project_members: ['is_external'], gantt_tasks: ['is_milestone'] };
+  const jsonFields = { project_members: ['permissions'], diary_reports: ['weather_data', 'photos'], weather_logs: ['raw_data'] };
 
-  (booleanFields[tableName] || []).forEach(f => {
-    if (payload[f] !== undefined) payload[f] = Boolean(payload[f]);
-  });
-
+  (booleanFields[tableName] || []).forEach(f => { if (payload[f] !== undefined) payload[f] = Boolean(payload[f]); });
   (jsonFields[tableName] || []).forEach(f => {
-    if (typeof payload[f] === 'string') {
-      try { payload[f] = JSON.parse(payload[f]); } catch {}
-    }
+    if (typeof payload[f] === 'string') { try { payload[f] = JSON.parse(payload[f]); } catch {} }
   });
 }
 
@@ -194,12 +162,7 @@ export async function syncAll() {
   const pushResult = await push();
   const pullResult = await pull();
 
-  return {
-    success: true,
-    pushed: pushResult.pushed,
-    failed: pushResult.failed,
-    pulled: pullResult.pulled,
-  };
+  return { success: true, pushed: pushResult.pushed, failed: pushResult.failed, pulled: pullResult.pulled };
 }
 
 // ============================================================
@@ -210,7 +173,6 @@ let syncInterval = null;
 
 export function startAutoSync() {
   stopAutoSync();
-
   unsubscribe = NetInfo.addEventListener(async (state) => {
     if (state.isConnected && state.isInternetReachable !== false) {
       console.log('[Sync] Network reconnected, syncing...');
@@ -239,28 +201,16 @@ export function stopAutoSync() {
 // STATS
 // ============================================================
 export async function getPendingCount() {
-  const db = await getDB();
-  const r = await db.getFirstAsync(
-    'SELECT COUNT(*) AS count FROM sync_queue WHERE retry_count < ?',
-    [MAX_RETRY]
-  );
+  const r = await dbGetFirst('SELECT COUNT(*) AS count FROM sync_queue WHERE retry_count < ?', MAX_RETRY);
   return r?.count || 0;
 }
 
 export async function getFailedCount() {
-  const db = await getDB();
-  const r = await db.getFirstAsync(
-    'SELECT COUNT(*) AS count FROM sync_queue WHERE retry_count >= ?',
-    [MAX_RETRY]
-  );
+  const r = await dbGetFirst('SELECT COUNT(*) AS count FROM sync_queue WHERE retry_count >= ?', MAX_RETRY);
   return r?.count || 0;
 }
 
 export async function retryFailed() {
-  const db = await getDB();
-  await db.runAsync(
-    `UPDATE sync_queue SET retry_count=0, last_error='' WHERE retry_count >= ?`,
-    [MAX_RETRY]
-  );
+  await dbRun(`UPDATE sync_queue SET retry_count=0, last_error='' WHERE retry_count >= ?`, MAX_RETRY);
   return await push();
 }
