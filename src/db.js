@@ -221,13 +221,53 @@ export async function register(username, password, fullName, position, departmen
   return { id: r.lastInsertRowId, username, fullName };
 }
 
+// -------------------------------------------------------------------
+// 👇 แก้ไขฟังก์ชัน login ให้ดึงข้อมูลจาก Supabase แล้ว 👇
+// -------------------------------------------------------------------
 export async function login(username, password) {
   const db = await getDB();
-  const user = await db.getFirstAsync('SELECT * FROM users WHERE username=? AND password=?', [username.toLowerCase(), password]);
+  const lowerUsername = username.toLowerCase();
+
+  // 1. ลองค้นหาในฐานข้อมูล Local (เครื่องปัจจุบัน) ก่อน
+  let user = await db.getFirstAsync(
+    'SELECT * FROM users WHERE username=? AND password=?', 
+    [lowerUsername, password]
+  );
+
+  // 2. ถ้าไม่พบใน Local ให้ลองค้นหาใน Supabase (ออนไลน์)
+  if (!user) {
+    const net = await NetInfo.fetch();
+    if (net.isConnected) {
+      // ดึงข้อมูลผู้ใช้จาก Supabase
+      const { data: cloudUsers, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('username', lowerUsername)
+        .eq('password', password);
+
+      // ถ้าพบข้อมูลใน Supabase
+      if (cloudUsers && cloudUsers.length > 0) {
+        user = cloudUsers[0];
+        
+        // 3. นำข้อมูลจาก Cloud มาบันทึกลง Local DB เพื่อให้พร้อมใช้งานแบบออฟไลน์
+        const exists = await db.getFirstAsync('SELECT id FROM users WHERE id=?', [user.id]);
+        if (!exists) {
+          await db.runAsync(
+            'INSERT INTO users (id, username, password, full_name, position, department, phone, role) VALUES (?,?,?,?,?,?,?,?)',
+            [user.id, user.username, user.password, user.full_name, user.position || '', user.department || '', user.phone || '', user.role || 'member']
+          );
+        }
+      }
+    }
+  }
+
+  // 4. ถ้าหาจากทั้ง Local และ Supabase ไม่เจอ
   if (!user) throw new Error('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง');
+
   syncToCloud(); // เช็ค Sync ตอนเข้าสู่ระบบ
   return user;
 }
+// -------------------------------------------------------------------
 
 export async function getUserById(id) {
   const db = await getDB();
