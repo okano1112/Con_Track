@@ -8,14 +8,21 @@ import * as SQLite from 'expo-sqlite';
 import { newUUID, now } from './utils';
 
 let _db = null;
+let _initPromise = null; // 🔑 Lock ป้องกัน race condition
 
 export async function getDB() {
   if (_db) return _db;
-  _db = await SQLite.openDatabaseAsync('contrack_v5.db'); // รีเซ็ตฐานข้อมูลล้างคิวเก่า
-  await _db.execAsync('PRAGMA journal_mode = WAL;');
-  await _db.execAsync('PRAGMA foreign_keys = ON;');
-  await initSchema(_db);
-  return _db;
+  if (_initPromise) return await _initPromise; // รอตัวที่กำลัง init อยู่
+  
+  _initPromise = (async () => {
+    _db = await SQLite.openDatabaseAsync('contrack_v5.db');
+    await _db.execAsync('PRAGMA journal_mode = WAL;');
+    await _db.execAsync('PRAGMA foreign_keys = ON;');
+    await initSchema(_db);
+    return _db;
+  })();
+
+  return await _initPromise;
 }
 
 // ============================================================

@@ -189,7 +189,11 @@ export function startAutoSync() {
     }
   }, 30000);
 
-  syncAll().then(r => console.log('[Sync] Initial sync:', r));
+  syncAll().then(r => {
+  if (r.failed > 0 || !r.success) {
+    console.log('[Sync] Initial sync warning:', r);
+  }
+});
 }
 
 export function stopAutoSync() {

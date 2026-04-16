@@ -42,7 +42,7 @@ export default function SyncStatusBar() {
   return (
     <TouchableOpacity
       onPress={handleSync}
-      disabled={!isOnline || syncing}
+      disabled={true}
       activeOpacity={0.7}
       style={{
         backgroundColor: bgColor,
@@ -58,9 +58,6 @@ export default function SyncStatusBar() {
         ? <ActivityIndicator size="small" color="#fff" />
         : <Ionicons name={icon} size={14} color="#fff" />}
       <Text style={{ color: '#fff', fontSize: 12, fontWeight: '600' }}>{text}</Text>
-      {isOnline && pending > 0 && !syncing && (
-        <Text style={{ color: '#fff', fontSize: 11, opacity: 0.8 }}>(แตะเพื่อ sync)</Text>
-      )}
     </TouchableOpacity>
   );
 }
