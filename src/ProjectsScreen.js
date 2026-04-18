@@ -21,6 +21,7 @@ import {
 } from './Components';
 import * as DB from './db';
 
+
 // ประเภทโครงการ
 const PROJECT_TYPES = [
   { key: 'building', label: 'อาคาร', icon: 'business-outline' },
@@ -84,7 +85,7 @@ export function ProjectsListScreen({ navigation }) {
                 ร่วม
               </Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => navigation.navigate('AddProject')}
+            <TouchableOpacity onPress={() => navigation.navigate('ProjectForm')}
               style={{
                 backgroundColor: C.accent, borderRadius: 10,
                 paddingHorizontal: 14, paddingVertical: 8,

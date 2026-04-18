@@ -28,7 +28,6 @@ import TeamCalcScreen from './TeamCalcScreen';
 import WeatherScreen from './WeatherScreen';
 import RainAlternativesScreen from './RainAlternativesScreen';
 import ProjectFormScreen from './ProjectFormScreen';
-
 // ============================================================
 // Stack: Projects
 // ============================================================
@@ -57,6 +56,7 @@ function HubStackNav() {
   return (
     <HubStack.Navigator screenOptions={{ headerShown: false }}>
       <HubStack.Screen name="ProjectHub" component={ProjectHubScreen} />
+      <HubStack.Screen name="ProjectForm" component={ProjectFormScreen} options={{ headerShown: false }} />
       <HubStack.Screen name="AddProject" component={AddProjectScreen} />
       <HubStack.Screen name="JoinProject" component={JoinProjectScreen} />
       <HubStack.Screen name="ProjectDetail" component={ProjectDetailScreen} />

@@ -155,7 +155,7 @@ export default function ProjectHubScreen({ navigation }) {
 
           {/* สร้างโครงการ */}
           <TouchableOpacity activeOpacity={0.8}
-            onPress={() => navigation.navigate('AddProject')}
+            onPress={() => navigation.navigate('ProjectForm')}
             style={{
               flex: 1, backgroundColor: C.accent, borderRadius: 16,
               padding: 18, minHeight: 160,
