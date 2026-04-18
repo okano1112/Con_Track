@@ -159,12 +159,6 @@ export default function MainNavigator() {
           title: 'งานสำรอง (ฝนตก)',
           drawerIcon: ({ color, size }) => <Ionicons name="git-branch" size={size} color={color} />,
         }} />
-      <Drawer.Screen name="RainAlternatives" component={withLayout(RainAlternativesScreen)}
-        options={{
-          title: 'งานสำรอง (ฝนตก)',
-          drawerIcon: ({ color, size }) =>
-            <Ionicons name="git-branch" size={size} color={color} />,
-        }} />
     </Drawer.Navigator>
   );
 }

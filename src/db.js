@@ -2,7 +2,7 @@
 // ============================================================
 // Database Layer (SQLite) - Offline First
 // ทุกการเขียนจะเข้า sync_queue อัตโนมัติ
-// v6: เพิ่ม project_codes, boq_items, field โครงการใหม่ 4 ส่วน
+// v6: เพิ่ม project_codes, boq_items, field โครงการใหม่ และแก้บั๊ก Owner/Validation
 // ============================================================
 
 import * as SQLite from 'expo-sqlite';
@@ -87,6 +87,7 @@ async function initSchema(db) {
       duration_days INTEGER DEFAULT 0,
       start_date TEXT, end_date TEXT,
       client_name TEXT DEFAULT '',
+      address TEXT DEFAULT '',
       pm_id TEXT,
       progress INTEGER DEFAULT 0,
       status TEXT DEFAULT 'planning', owner_id TEXT,
@@ -220,6 +221,7 @@ async function runMigrations(db) {
     `ALTER TABLE projects ADD COLUMN ntp_date TEXT`,
     `ALTER TABLE projects ADD COLUMN duration_days INTEGER DEFAULT 0`,
     `ALTER TABLE projects ADD COLUMN client_name TEXT DEFAULT ''`,
+    `ALTER TABLE projects ADD COLUMN address TEXT DEFAULT ''`,
     `ALTER TABLE projects ADD COLUMN pm_id TEXT`,
   ];
   for (const sql of alters) {
@@ -281,11 +283,10 @@ export { insertRow, updateRow, deleteRow, enqueue };
 // PROJECT CODE GENERATOR
 // ============================================================
 function generateProjectCode() {
-  // รูปแบบ: CT-YYMM-XXX (เช่น CT-2604-A5K)
-  const now = new Date();
-  const yy = String(now.getFullYear()).slice(-2);
-  const mm = String(now.getMonth() + 1).padStart(2, '0');
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // ตัด 0,O,1,I,l เพื่อไม่สับสน
+  const nowTime = new Date();
+  const yy = String(nowTime.getFullYear()).slice(-2);
+  const mm = String(nowTime.getMonth() + 1).padStart(2, '0');
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; 
   let random = '';
   for (let i = 0; i < 3; i++) {
     random += chars[Math.floor(Math.random() * chars.length)];
@@ -299,11 +300,9 @@ async function generateUniqueProjectCode() {
     const exists = await dbGetFirst('SELECT id FROM projects WHERE project_code=?', code);
     if (!exists) return code;
   }
-  // fallback: ใส่ timestamp
   return `CT-${Date.now().toString(36).toUpperCase()}`;
 }
 
-// รหัสเชิญสั้น 6 ตัว
 function generateInviteCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let code = '';
@@ -340,7 +339,6 @@ export async function findProjectByCode(code) {
   const trimmed = (code || '').trim().toUpperCase();
   if (!trimmed) return null;
 
-  // 1. ลองหาจาก invite code ก่อน
   const invite = await dbGetFirst(
     'SELECT * FROM project_codes WHERE code=? AND is_active=1',
     trimmed
@@ -356,7 +354,6 @@ export async function findProjectByCode(code) {
     if (project) return { project, invite };
   }
 
-  // 2. หาจาก project_code ตรงๆ
   const project = await dbGetFirst('SELECT * FROM projects WHERE project_code=?', trimmed);
   if (project) return { project, invite: null };
 
@@ -367,7 +364,6 @@ export async function useInviteCode(inviteId, userId) {
   const invite = await dbGetFirst('SELECT * FROM project_codes WHERE id=?', inviteId);
   if (!invite) throw new Error('ไม่พบรหัสเชิญ');
 
-  // เพิ่ม member (ถ้ายังไม่มี)
   const existing = await dbGetFirst(
     'SELECT id FROM project_members WHERE project_id=? AND user_id=?',
     invite.project_id, userId
@@ -381,7 +377,6 @@ export async function useInviteCode(inviteId, userId) {
     });
   }
 
-  // update uses_count
   await updateRow('project_codes', inviteId, {
     uses_count: (invite.uses_count || 0) + 1,
   });
@@ -392,33 +387,72 @@ export async function useInviteCode(inviteId, userId) {
 // ============================================================
 // PROJECTS
 // ============================================================
+
+// เช็กรหัสโครงการซ้ำ
+export async function checkProjectCodeExists(code, excludeId = null) {
+  if (!code || code.trim().length === 0) return false;
+  const trimmed = code.trim();
+
+  let rows;
+  if (excludeId) {
+    rows = await dbGetAll(
+      'SELECT id FROM projects WHERE project_code = ? AND id != ? LIMIT 1',
+      trimmed, excludeId
+    );
+  } else {
+    rows = await dbGetAll(
+      'SELECT id FROM projects WHERE project_code = ? LIMIT 1',
+      trimmed
+    );
+  }
+  return rows && rows.length > 0;
+}
+
+// สร้างโครงการใหม่ (อัปเดต v6 + ดึง Owner เข้าโปรเจกต์อัตโนมัติ)
 export async function createProject(data) {
-  const code = data.projectCode || await generateUniqueProjectCode();
-  return await insertRow('projects', {
+  const code = data.projectCode || data.project_code || await generateUniqueProjectCode();
+  const id = data.id || newUUID();
+  const owner_id = data.ownerId || data.owner_id;
+
+  const row = await insertRow('projects', {
+    id: id,
     project_code: code,
     name: data.name,
     description: data.description || '',
-    project_type: data.projectType || 'building',
+    project_type: data.projectType || data.project_type || 'building',
     location: data.location || '',
     latitude: data.latitude || null,
     longitude: data.longitude || null,
     budget: data.budget || 0,
-    contract_no: data.contractNo || '',
-    contract_value: data.contractValue || 0,
-    advance_percent: data.advancePercent || 0,
-    retention_percent: data.retentionPercent || 5,
-    scope_of_work: data.scopeOfWork || '',
-    contract_date: data.contractDate || null,
-    ntp_date: data.ntpDate || null,
-    duration_days: data.durationDays || 0,
-    start_date: data.startDate || null,
-    end_date: data.endDate || null,
-    client_name: data.clientName || '',
+    contract_no: data.contractNo || data.contract_no || '',
+    contract_value: data.contractValue || data.contract_value || 0,
+    advance_percent: data.advancePercent || data.advance_percent || 0,
+    retention_percent: data.retentionPercent || data.retention_percent || 5,
+    scope_of_work: data.scopeOfWork || data.scope_of_work || '',
+    contract_date: data.contractDate || data.contract_date || null,
+    ntp_date: data.ntpDate || data.ntp_date || null,
+    duration_days: data.durationDays || data.duration_days || 0,
+    start_date: data.startDate || data.start_date || null,
+    end_date: data.endDate || data.end_date || null,
+    client_name: data.clientName || data.client_name || '',
+    address: data.address || '',
     pm_id: data.pmId || null,
     status: data.status || 'planning',
     progress: 0,
-    owner_id: data.ownerId,
+    owner_id: owner_id,
   });
+
+  // กำหนดสิทธิ์ Owner ให้ผู้สร้างอัตโนมัติ
+  if (owner_id) {
+    await insertRow('project_members', {
+      project_id: id,
+      user_id: owner_id,
+      role: 'owner',
+      permissions: '{}',
+    });
+  }
+
+  return row;
 }
 
 export async function updateProject(id, data) {
