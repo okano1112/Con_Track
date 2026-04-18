@@ -1,6 +1,7 @@
 // SyncStatusBar.js
 // ============================================================
 // แถบสถานะ sync ด้านบนของแอป
+// (Fix: disabled ให้ถูกต้องตามสถานะ ไม่ hardcode true)
 // ============================================================
 
 import React, { useState, useEffect } from 'react';
@@ -15,7 +16,10 @@ export default function SyncStatusBar() {
   const [syncing, setSyncing] = useState(false);
 
   useEffect(() => {
-    const update = async () => setPending(await getPendingCount());
+    const update = async () => {
+      try { setPending(await getPendingCount()); }
+      catch (e) { /* silent */ }
+    };
     update();
     const id = setInterval(update, 5000);
     return () => clearInterval(id);
@@ -24,11 +28,17 @@ export default function SyncStatusBar() {
   const handleSync = async () => {
     if (!isOnline || syncing) return;
     setSyncing(true);
-    await syncAll();
-    setPending(await getPendingCount());
-    setSyncing(false);
+    try {
+      await syncAll();
+      setPending(await getPendingCount());
+    } catch (e) {
+      console.log('Sync error:', e);
+    } finally {
+      setSyncing(false);
+    }
   };
 
+  // ซ่อนเมื่อ online + ไม่มีข้อมูลค้าง + ไม่ได้ sync
   if (isOnline && pending === 0 && !syncing) return null;
 
   const bgColor = !isOnline ? '#F59E0B' : pending > 0 ? '#3B82F6' : '#10B981';
@@ -42,7 +52,7 @@ export default function SyncStatusBar() {
   return (
     <TouchableOpacity
       onPress={handleSync}
-      disabled={true}
+      disabled={!isOnline || syncing}
       activeOpacity={0.7}
       style={{
         backgroundColor: bgColor,

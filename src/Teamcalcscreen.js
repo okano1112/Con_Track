@@ -1,18 +1,19 @@
 // TeamCalcScreen.js
 // ============================================================
 // หน้าจัดทีมและทำนายผลผลิต + เชื่อมระบบสภาพอากาศ
+// (ปรับปรุง: เอาคำว่า "ทักษะ" ออก เปลี่ยนเป็น "คะแนน/ผลงาน")
 // ============================================================
 
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
-  RefreshControl, Dimensions, Alert
+  RefreshControl, Dimensions
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { LineChart } from 'react-native-chart-kit';
 import { C, Card, Header, Empty, Badge } from './Components';
-import { getWorkersWithRecords, getAllProjects } from './db';
+import { getWorkersWithRecords } from './db';
 import { getWeatherForecast } from './WeatherScreen';
 
 const screenWidth = Dimensions.get("window").width;
@@ -36,7 +37,6 @@ const WORK_TYPES = [
 ];
 
 const OUTDOOR_JOBS = ['เทปูน', 'โครงสร้าง คสล.', 'มุงหลังคา', 'ผูกเหล็ก'];
-const INDOOR_JOBS = ['ฉาบปูน', 'งานกระเบื้อง', 'งานทาสี', 'งานฝ้า', 'งานไฟฟ้า', 'งานประปา', 'ก่ออิฐ', 'งานไม้'];
 
 // ============================================================
 // Helpers
@@ -115,7 +115,8 @@ export default function TeamCalcScreen({ navigation }) {
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <Header title="จัดทีมและทำนายผลผลิต" onBack={() => navigation.openDrawer()} />
+      <Header title="จัดทีมและทำนายผลผลิต"
+        onBack={() => navigation.openDrawer && navigation.openDrawer()} />
 
       <View style={{
         flexDirection: 'row', backgroundColor: C.white,
@@ -326,7 +327,7 @@ function TeamTab({ workers, weatherData, navigation }) {
                 <Text style={{
                   fontSize: 12, color: hasData ? C.textSec : '#EF4444', marginTop: 2
                 }}>
-                  {hasData ? `ทักษะ: ${(worker.aiScore).toFixed(1)}/100` : 'ยังไม่มีสถิติ'}
+                  {hasData ? `คะแนนผลงาน: ${(worker.aiScore).toFixed(1)}/100` : 'ยังไม่มีสถิติ'}
                 </Text>
               </View>
               <View style={{ alignItems: 'flex-end', marginRight: 10 }}>
