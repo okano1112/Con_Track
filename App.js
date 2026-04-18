@@ -1,4 +1,6 @@
+import 'react-native-gesture-handler'
 import React, { useState, useEffect } from 'react';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { View, ActivityIndicator } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { AuthProvider, useAuth } from './src/AuthContext';
@@ -36,10 +38,12 @@ export default function App() {
   );
 
   return (
+    <GestureHandlerRootView>
     <NavigationContainer>
       <AuthProvider>
         <RootNavigator />
       </AuthProvider>
     </NavigationContainer>
+    </GestureHandlerRootView>
   );
 }
