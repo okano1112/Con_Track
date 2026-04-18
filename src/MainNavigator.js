@@ -26,6 +26,7 @@ import DocumentsScreen from './DocumentsScreen';
 import WorkerStatsScreen from './WorkerStatsScreen';
 import TeamCalcScreen from './TeamCalcScreen';
 import WeatherScreen from './WeatherScreen';
+import RainAlternativesScreen from './RainAlternativesScreen';  
 
 // ============================================================
 // Stack: Projects
@@ -149,6 +150,11 @@ export default function MainNavigator() {
         options={{
           title: 'พยากรณ์อากาศ',
           drawerIcon: ({ color, size }) => <Ionicons name="cloudy" size={size} color={color} />,
+        }} />
+      <Drawer.Screen name="RainAlternatives" component={withLayout(RainAlternativesScreen)}
+        options={{
+          title: 'งานสำรอง (ฝนตก)',
+          drawerIcon: ({ color, size }) => <Ionicons name="git-branch" size={size} color={color} />,
         }} />
     </Drawer.Navigator>
   );

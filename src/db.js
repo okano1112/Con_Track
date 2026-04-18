@@ -502,6 +502,31 @@ export async function getBOQItems(projectId) {
   );
 }
 
+export async function getGanttTasks(projectId) {
+  return await dbGetAll(
+    'SELECT * FROM gantt_tasks WHERE project_id=? ORDER BY sort_order ASC, start_date ASC',
+    projectId
+  );
+}
+
+export async function createGanttTask(data) {
+  return await insertRow('gantt_tasks', {
+    project_id: data.projectId,
+    parent_id: data.parentId || null,
+    name: data.name,
+    start_date: data.startDate,
+    end_date: data.endDate,
+    duration_days: data.durationDays || 1,
+    progress: data.progress || 0,
+    depends_on: data.dependsOn || '',
+    is_milestone: data.isMilestone ? 1 : 0,
+    assigned_to: data.assignedTo || null,
+    sort_order: data.sortOrder || 0,
+    color: data.color || '#3B82F6',
+    notes: data.notes || '',
+  });
+}
+
 // ============================================================
 // TASKS
 // ============================================================
