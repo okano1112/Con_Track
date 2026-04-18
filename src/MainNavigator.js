@@ -1,9 +1,8 @@
 // MainNavigator.js
 // ============================================================
 // Navigator หลักหลัง login
-// - เพิ่มหน้า ProjectHub (เลือกเข้าร่วม/สร้างโครงการ)
-// - เพิ่ม JoinProject (ค้นหาโครงการด้วยรหัส)
-// - เพิ่ม BOQ (Bill of Quantities)
+// v6.2: TeamCalc อยู่ใน Stack ของ WorkerStats (ไม่โผล่ใน Drawer)
+//       กด back จาก TeamCalc → กลับหน้าสถิติช่าง
 // ============================================================
 
 import React from 'react';
@@ -15,7 +14,6 @@ import { Ionicons } from '@expo/vector-icons';
 import AppLayout from './AppLayout';
 import { C } from './Components';
 
-import HomeScreen from './HomeScreen';
 import ProjectHubScreen from './ProjectHubScreen';
 import ProfileScreen from './ProfileScreen';
 import {
@@ -30,7 +28,7 @@ import TeamCalcScreen from './TeamCalcScreen';
 import WeatherScreen from './WeatherScreen';
 
 // ============================================================
-// Stack สำหรับ Projects
+// Stack: Projects
 // ============================================================
 const ProjectStack = createNativeStackNavigator();
 function ProjectsStackNav() {
@@ -48,7 +46,7 @@ function ProjectsStackNav() {
 }
 
 // ============================================================
-// Stack สำหรับ Hub (หน้าแรกหลัง login)
+// Stack: Hub (หน้าแรกหลัง login)
 // ============================================================
 const HubStack = createNativeStackNavigator();
 function HubStackNav() {
@@ -66,7 +64,21 @@ function HubStackNav() {
 }
 
 // ============================================================
-// Bottom Tabs
+// Stack: WorkerStats + TeamCalc  (NEW v6.2)
+// TeamCalc จะอยู่ใน stack นี้ — กด back → กลับหน้าสถิติช่าง
+// ============================================================
+const WorkerStatsStack = createNativeStackNavigator();
+function WorkerStatsStackNav() {
+  return (
+    <WorkerStatsStack.Navigator screenOptions={{ headerShown: false }}>
+      <WorkerStatsStack.Screen name="WorkerStats" component={WorkerStatsScreen} />
+      <WorkerStatsStack.Screen name="TeamCalc" component={TeamCalcScreen} />
+    </WorkerStatsStack.Navigator>
+  );
+}
+
+// ============================================================
+// Bottom Tabs (4 แท็บ)
 // ============================================================
 const Tab = createBottomTabNavigator();
 function HomeTabs() {
@@ -79,8 +91,7 @@ function HomeTabs() {
         tabBarStyle: { paddingBottom: 4, paddingTop: 4, height: 56 },
         tabBarIcon: ({ color, size }) => {
           const icons = {
-            HubTab: 'apps-outline',
-            HomeTab: 'home-outline',
+            HubTab: 'home-outline',
             ProjectsTab: 'business-outline',
             DocumentsTab: 'document-text-outline',
             ProfileTab: 'person-outline',
@@ -89,8 +100,7 @@ function HomeTabs() {
         },
       })}
     >
-      <Tab.Screen name="HubTab" component={HubStackNav} options={{ title: 'เริ่มต้น' }} />
-      <Tab.Screen name="HomeTab" component={HomeScreen} options={{ title: 'แดชบอร์ด' }} />
+      <Tab.Screen name="HubTab" component={HubStackNav} options={{ title: 'หน้าหลัก' }} />
       <Tab.Screen name="ProjectsTab" component={ProjectsStackNav} options={{ title: 'โครงการ' }} />
       <Tab.Screen name="DocumentsTab" component={DocumentsScreen} options={{ title: 'เอกสาร' }} />
       <Tab.Screen name="ProfileTab" component={ProfileScreen} options={{ title: 'โปรไฟล์' }} />
@@ -99,7 +109,7 @@ function HomeTabs() {
 }
 
 // ============================================================
-// Drawer
+// Drawer (3 รายการ — ไม่มี "จัดทีม" แล้ว)
 // ============================================================
 const Drawer = createDrawerNavigator();
 
@@ -125,16 +135,16 @@ export default function MainNavigator() {
           title: 'หน้าหลัก',
           drawerIcon: ({ color, size }) => <Ionicons name="home" size={size} color={color} />,
         }} />
-      <Drawer.Screen name="WorkerStats" component={withLayout(WorkerStatsScreen)}
+
+      {/* WorkerStats ตอนนี้เป็น Stack ข้างในมี TeamCalc ด้วย */}
+      <Drawer.Screen name="WorkerStats" component={withLayout(WorkerStatsStackNav)}
         options={{
           title: 'สถิติช่าง',
           drawerIcon: ({ color, size }) => <Ionicons name="people" size={size} color={color} />,
         }} />
-      <Drawer.Screen name="TeamCalc" component={withLayout(TeamCalcScreen)}
-        options={{
-          title: 'จัดทีม',
-          drawerIcon: ({ color, size }) => <Ionicons name="calculator" size={size} color={color} />,
-        }} />
+
+      {/* ✗ เอา TeamCalc ออกจาก Drawer แล้ว — เข้าผ่านสถิติช่างแทน */}
+
       <Drawer.Screen name="WeatherScreen" component={withLayout(WeatherScreen)}
         options={{
           title: 'พยากรณ์อากาศ',

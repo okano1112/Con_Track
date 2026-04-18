@@ -1,7 +1,7 @@
 // ProjectHubScreen.js
 // ============================================================
 // หน้าแรกหลัง Login - เลือกเข้าร่วม/สร้างโครงการ
-// + แสดงโครงการล่าสุดที่เข้าร่วมไว้
+// + แสดงโครงการล่าสุดที่เข้าร่วมไว้ + สรุปสถิติ
 // ============================================================
 
 import React, { useState, useCallback } from 'react';
@@ -12,7 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, DrawerActions } from '@react-navigation/native';
 import { useAuth } from './AuthContext';
 import { getAllProjects, getDashboardStats } from './db';
-import { C, Card, ProgressBar, STATUS, Empty } from './Components';
+import { C, Card, ProgressBar, STATUS } from './Components';
 
 export default function ProjectHubScreen({ navigation }) {
   const { user } = useAuth();
@@ -38,6 +38,12 @@ export default function ProjectHubScreen({ navigation }) {
     if (parent) parent.dispatch(DrawerActions.openDrawer());
   };
 
+  // ไปที่แท็บโครงการ (เพราะ ProjectsList อยู่คนละ stack)
+  const goToProjectsTab = () => {
+    const parent = navigation.getParent();
+    if (parent) parent.navigate('ProjectsTab');
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       {/* Header */}
@@ -58,6 +64,11 @@ export default function ProjectHubScreen({ navigation }) {
             <Text style={{ color: '#fff', fontSize: 22, fontWeight: '700' }}>
               {user?.full_name || 'ผู้ใช้'}
             </Text>
+            {user?.custom_id && (
+              <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, marginTop: 2 }}>
+                @{user.custom_id}
+              </Text>
+            )}
           </View>
           {user?.avatar_url ? (
             <Image source={{ uri: user.avatar_url }}
@@ -72,6 +83,30 @@ export default function ProjectHubScreen({ navigation }) {
             </View>
           )}
         </View>
+
+        {/* Stats เต็มในส่วน header เพื่อทดแทนแดชบอร์ดเก่า */}
+        {stats && (
+          <View style={{ flexDirection: 'row', marginTop: 20, gap: 8 }}>
+            {[
+              { label: 'โครงการ', value: stats.projects?.total || 0, color: '#60A5FA' },
+              { label: 'กำลังทำ', value: stats.projects?.active || 0, color: '#FBBF24' },
+              { label: 'เสร็จแล้ว', value: stats.projects?.completed || 0, color: '#34D399' },
+              { label: 'งานด่วน', value: stats.tasks?.urgent || 0, color: '#F87171' },
+            ].map((item, i) => (
+              <View key={i} style={{
+                flex: 1, backgroundColor: 'rgba(255,255,255,0.1)',
+                borderRadius: 12, padding: 10, alignItems: 'center'
+              }}>
+                <Text style={{ color: item.color, fontSize: 20, fontWeight: '800' }}>
+                  {item.value}
+                </Text>
+                <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 10, marginTop: 2 }}>
+                  {item.label}
+                </Text>
+              </View>
+            ))}
+          </View>
+        )}
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
@@ -150,35 +185,6 @@ export default function ProjectHubScreen({ navigation }) {
           </TouchableOpacity>
         </View>
 
-        {/* Stats */}
-        {stats && stats.projects?.total > 0 && (
-          <>
-            <Text style={{ fontSize: 17, fontWeight: '700', color: C.text, marginBottom: 12 }}>
-              ภาพรวม
-            </Text>
-            <View style={{ flexDirection: 'row', gap: 10, marginBottom: 20 }}>
-              {[
-                { label: 'ทั้งหมด', value: stats.projects?.total || 0, color: '#3B82F6', bg: '#DBEAFE' },
-                { label: 'กำลังทำ', value: stats.projects?.active || 0, color: '#F59E0B', bg: '#FEF3C7' },
-                { label: 'เสร็จแล้ว', value: stats.projects?.completed || 0, color: '#10B981', bg: '#D1FAE5' },
-                { label: 'งานด่วน', value: stats.tasks?.urgent || 0, color: '#EF4444', bg: '#FEE2E2' },
-              ].map((item, i) => (
-                <View key={i} style={{
-                  flex: 1, backgroundColor: item.bg, borderRadius: 12,
-                  padding: 12, alignItems: 'center'
-                }}>
-                  <Text style={{ color: item.color, fontSize: 22, fontWeight: '800' }}>
-                    {item.value}
-                  </Text>
-                  <Text style={{ color: C.textSec, fontSize: 11, marginTop: 2 }}>
-                    {item.label}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          </>
-        )}
-
         {/* Recent Projects */}
         <View style={{
           flexDirection: 'row', justifyContent: 'space-between',
@@ -188,7 +194,7 @@ export default function ProjectHubScreen({ navigation }) {
             โครงการของคุณ
           </Text>
           {projects.length > 0 && (
-            <TouchableOpacity onPress={() => navigation.navigate('ProjectsList')}>
+            <TouchableOpacity onPress={goToProjectsTab}>
               <Text style={{ color: C.primary, fontSize: 13, fontWeight: '600' }}>
                 ดูทั้งหมด →
               </Text>
@@ -273,18 +279,21 @@ export default function ProjectHubScreen({ navigation }) {
         </Text>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
           {[
-            { label: 'เอกสาร', icon: 'document-text', color: '#8B5CF6', nav: 'DocumentsTab' },
-            { label: 'สถิติช่าง', icon: 'bar-chart', color: '#10B981', parent: 'WorkerStats' },
-            { label: 'จัดทีม', icon: 'calculator', color: '#F59E0B', parent: 'TeamCalc' },
-            { label: 'สภาพอากาศ', icon: 'cloudy', color: '#3B82F6', parent: 'WeatherScreen' },
+            { label: 'เอกสาร', icon: 'document-text', color: '#8B5CF6', tab: 'DocumentsTab' },
+            { label: 'สถิติช่าง', icon: 'bar-chart', color: '#10B981', drawer: 'WorkerStats' },
+            { label: 'จัดทีม', icon: 'calculator', color: '#F59E0B', drawer: 'TeamCalc' },
+            { label: 'สภาพอากาศ', icon: 'cloudy', color: '#3B82F6', drawer: 'WeatherScreen' },
           ].map((m) => (
             <TouchableOpacity key={m.label} activeOpacity={0.7}
               onPress={() => {
-                if (m.parent) {
-                  const parent = navigation.getParent();
-                  if (parent) parent.navigate(m.parent);
-                } else if (m.nav) {
-                  navigation.navigate(m.nav);
+                const parent = navigation.getParent();
+                if (m.drawer && parent) {
+                  // drawer-level screens
+                  const grandparent = parent.getParent?.();
+                  if (grandparent) grandparent.navigate(m.drawer);
+                  else parent.navigate(m.drawer);
+                } else if (m.tab && parent) {
+                  parent.navigate(m.tab);
                 }
               }}
               style={{

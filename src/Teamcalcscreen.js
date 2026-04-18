@@ -1,7 +1,7 @@
 // TeamCalcScreen.js
 // ============================================================
 // หน้าจัดทีมและทำนายผลผลิต + เชื่อมระบบสภาพอากาศ
-// (ปรับปรุง: เอาคำว่า "ทักษะ" ออก เปลี่ยนเป็น "คะแนน/ผลงาน")
+// v6.2: เปลี่ยน onBack จากเปิด drawer → goBack (กลับหน้าสถิติช่าง)
 // ============================================================
 
 import React, { useState, useCallback } from 'react';
@@ -115,8 +115,9 @@ export default function TeamCalcScreen({ navigation }) {
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
+      {/* ✓ เปลี่ยนจาก openDrawer → goBack (กลับสถิติช่าง) */}
       <Header title="จัดทีมและทำนายผลผลิต"
-        onBack={() => navigation.openDrawer && navigation.openDrawer()} />
+        onBack={() => navigation.goBack()} />
 
       <View style={{
         flexDirection: 'row', backgroundColor: C.white,
@@ -207,7 +208,11 @@ function TeamTab({ workers, weatherData, navigation }) {
                 สภาพอากาศหน้างาน
               </Text>
             </View>
-            <TouchableOpacity onPress={() => navigation.navigate('WeatherScreen')}>
+            <TouchableOpacity onPress={() => {
+              const parent = navigation.getParent();
+              if (parent) parent.navigate('WeatherScreen');
+              else navigation.navigate('WeatherScreen');
+            }}>
               <Text style={{ fontSize: 12, color: '#3B82F6', fontWeight: '600' }}>ดูเพิ่มเติม →</Text>
             </TouchableOpacity>
           </View>
