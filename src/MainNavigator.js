@@ -26,7 +26,8 @@ import DocumentsScreen from './DocumentsScreen';
 import WorkerStatsScreen from './WorkerStatsScreen';
 import TeamCalcScreen from './TeamCalcScreen';
 import WeatherScreen from './WeatherScreen';
-import RainAlternativesScreen from './RainAlternativesScreen';  
+import RainAlternativesScreen from './RainAlternativesScreen';
+import ProjectFormScreen from './ProjectFormScreen';
 
 // ============================================================
 // Stack: Projects
@@ -42,6 +43,8 @@ function ProjectsStackNav() {
       <ProjectStack.Screen name="AddTask" component={AddTaskScreen} />
       <ProjectStack.Screen name="AddDocument" component={AddDocumentScreen} />
       <ProjectStack.Screen name="BOQ" component={BOQScreen} />
+      <ProjectStack.Screen name="ProjectForm" component={ProjectFormScreen}
+  options={{ headerShown: false }} />
     </ProjectStack.Navigator>
   );
 }
@@ -155,6 +158,12 @@ export default function MainNavigator() {
         options={{
           title: 'งานสำรอง (ฝนตก)',
           drawerIcon: ({ color, size }) => <Ionicons name="git-branch" size={size} color={color} />,
+        }} />
+      <Drawer.Screen name="RainAlternatives" component={withLayout(RainAlternativesScreen)}
+        options={{
+          title: 'งานสำรอง (ฝนตก)',
+          drawerIcon: ({ color, size }) =>
+            <Ionicons name="git-branch" size={size} color={color} />,
         }} />
     </Drawer.Navigator>
   );
