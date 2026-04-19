@@ -286,7 +286,7 @@ function generateProjectCode() {
   const nowTime = new Date();
   const yy = String(nowTime.getFullYear()).slice(-2);
   const mm = String(nowTime.getMonth() + 1).padStart(2, '0');
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; 
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let random = '';
   for (let i = 0; i < 3; i++) {
     random += chars[Math.floor(Math.random() * chars.length)];
@@ -601,17 +601,24 @@ export async function createDocument(data) {
   });
 }
 
-export async function getAllDocuments(categoryFilter) {
+export async function getAllDocuments(categoryFilter, includeTaskDocs = false) {
   let sql = `
     SELECT d.*, p.name AS project_name
     FROM documents d
     LEFT JOIN projects p ON d.project_id = p.id
   `;
   const params = [];
+  const where = [];
+
   if (categoryFilter && categoryFilter !== 'all') {
-    sql += ' WHERE d.category=?';
+    where.push('d.category = ?');
     params.push(categoryFilter);
+  } else if (!includeTaskDocs) {
+    // ซ่อนเอกสารระดับ task (category = 'task:...') จากหน้ารวม
+    where.push("(d.category NOT LIKE 'task:%' OR d.category IS NULL)");
   }
+
+  if (where.length > 0) sql += ' WHERE ' + where.join(' AND ');
   sql += ' ORDER BY d.created_at DESC';
   return await dbGetAll(sql, params);
 }
@@ -681,7 +688,13 @@ export async function getDashboardStats() {
   const recent = await dbGetAll('SELECT * FROM projects ORDER BY created_at DESC LIMIT 5');
   return { projects: p, tasks: t, recentProjects: recent };
 }
-
+export async function getTaskDocuments(taskId) {
+  if (!taskId) return [];
+  return await dbGetAll(
+    "SELECT * FROM documents WHERE category = ? ORDER BY created_at DESC",
+    `task:${taskId}`
+  );
+}
 // ============================================================
 // MAINTENANCE
 // ============================================================

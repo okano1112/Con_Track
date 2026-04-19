@@ -1,8 +1,7 @@
 // MainNavigator.js
 // ============================================================
 // Navigator หลักหลัง login
-// v6.2: TeamCalc อยู่ใน Stack ของ WorkerStats (ไม่โผล่ใน Drawer)
-//       กด back จาก TeamCalc → กลับหน้าสถิติช่าง
+// v7: เพิ่ม GanttTasksScreen (MS Project-style) ใน Projects + Hub stacks
 // ============================================================
 
 import React from 'react';
@@ -28,6 +27,8 @@ import TeamCalcScreen from './TeamCalcScreen';
 import WeatherScreen from './WeatherScreen';
 import RainAlternativesScreen from './RainAlternativesScreen';
 import ProjectFormScreen from './ProjectFormScreen';
+import GanttTasksScreen from './GanttTasksScreen';   // ✨ NEW v7
+
 // ============================================================
 // Stack: Projects
 // ============================================================
@@ -42,34 +43,34 @@ function ProjectsStackNav() {
       <ProjectStack.Screen name="AddTask" component={AddTaskScreen} />
       <ProjectStack.Screen name="AddDocument" component={AddDocumentScreen} />
       <ProjectStack.Screen name="BOQ" component={BOQScreen} />
-      <ProjectStack.Screen name="ProjectForm" component={ProjectFormScreen}
-  options={{ headerShown: false }} />
+      <ProjectStack.Screen name="GanttTasks" component={GanttTasksScreen} />
+      <ProjectStack.Screen name="ProjectForm" component={ProjectFormScreen} />
     </ProjectStack.Navigator>
   );
 }
 
 // ============================================================
-// Stack: Hub (หน้าแรกหลัง login)
+// Stack: Hub
 // ============================================================
 const HubStack = createNativeStackNavigator();
 function HubStackNav() {
   return (
     <HubStack.Navigator screenOptions={{ headerShown: false }}>
       <HubStack.Screen name="ProjectHub" component={ProjectHubScreen} />
-      <HubStack.Screen name="ProjectForm" component={ProjectFormScreen} options={{ headerShown: false }} />
+      <HubStack.Screen name="ProjectForm" component={ProjectFormScreen} />
       <HubStack.Screen name="AddProject" component={AddProjectScreen} />
       <HubStack.Screen name="JoinProject" component={JoinProjectScreen} />
       <HubStack.Screen name="ProjectDetail" component={ProjectDetailScreen} />
       <HubStack.Screen name="AddTask" component={AddTaskScreen} />
       <HubStack.Screen name="AddDocument" component={AddDocumentScreen} />
       <HubStack.Screen name="BOQ" component={BOQScreen} />
+      <HubStack.Screen name="GanttTasks" component={GanttTasksScreen} />
     </HubStack.Navigator>
   );
 }
 
 // ============================================================
-// Stack: WorkerStats + TeamCalc  (NEW v6.2)
-// TeamCalc จะอยู่ใน stack นี้ — กด back → กลับหน้าสถิติช่าง
+// Stack: WorkerStats + TeamCalc
 // ============================================================
 const WorkerStatsStack = createNativeStackNavigator();
 function WorkerStatsStackNav() {
@@ -82,7 +83,7 @@ function WorkerStatsStackNav() {
 }
 
 // ============================================================
-// Bottom Tabs (4 แท็บ)
+// Bottom Tabs
 // ============================================================
 const Tab = createBottomTabNavigator();
 function HomeTabs() {
@@ -113,7 +114,7 @@ function HomeTabs() {
 }
 
 // ============================================================
-// Drawer (3 รายการ — ไม่มี "จัดทีม" แล้ว)
+// Drawer
 // ============================================================
 const Drawer = createDrawerNavigator();
 
@@ -140,14 +141,11 @@ export default function MainNavigator() {
           drawerIcon: ({ color, size }) => <Ionicons name="home" size={size} color={color} />,
         }} />
 
-      {/* WorkerStats ตอนนี้เป็น Stack ข้างในมี TeamCalc ด้วย */}
       <Drawer.Screen name="WorkerStats" component={withLayout(WorkerStatsStackNav)}
         options={{
           title: 'สถิติช่าง',
           drawerIcon: ({ color, size }) => <Ionicons name="people" size={size} color={color} />,
         }} />
-
-      {/* ✗ เอา TeamCalc ออกจาก Drawer แล้ว — เข้าผ่านสถิติช่างแทน */}
 
       <Drawer.Screen name="WeatherScreen" component={withLayout(WeatherScreen)}
         options={{

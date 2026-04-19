@@ -3,7 +3,7 @@
 // จัดการ BOQ (Bill of Quantities) + เทียบผลงานกับช่าง
 // สูตรคุ้มทุน: ค่าแรง/วัน ÷ ราคาต่อหน่วย = ผลผลิตขั้นต่ำ/วัน
 // ============================================================
-
+import * as DocumentPicker from 'expo-document-picker';
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, Alert, Modal,
@@ -105,6 +105,78 @@ export default function BOQScreen({ route, navigation }) {
       }
     ]);
   };
+  const handleImportCSV = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['text/csv', 'text/comma-separated-values', 'application/csv'],
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled || !result.assets?.[0]) return;
+
+      const uri = result.assets[0].uri;
+      const response = await fetch(uri);
+      const text = await response.text();
+
+      // Parse CSV แบบง่าย (ไม่ใช้ papaparse)
+      const lines = text.split(/\r?\n/).filter(l => l.trim());
+      if (lines.length < 2) {
+        Alert.alert('CSV ว่าง', 'ไฟล์ไม่มีข้อมูล');
+        return;
+      }
+
+      const header = lines[0].split(',').map(h => h.trim().toLowerCase());
+      const rows = lines.slice(1);
+
+      // รองรับ header ชื่อ: item_name, unit, quantity, unit_price, labor_rate, material_rate, work_type, category, item_no, note
+      const idxName = header.indexOf('item_name');
+      const idxUnit = header.indexOf('unit');
+      const idxQty = header.indexOf('quantity');
+      const idxPrice = header.indexOf('unit_price');
+      const idxLabor = header.indexOf('labor_rate');
+      const idxMat = header.indexOf('material_rate');
+      const idxWorkType = header.indexOf('work_type');
+      const idxCat = header.indexOf('category');
+      const idxNo = header.indexOf('item_no');
+      const idxNote = header.indexOf('note');
+
+      if (idxName < 0) {
+        Alert.alert('ผิดพลาด',
+          'Header ต้องมีคอลัมน์ "item_name" เป็นอย่างน้อย\n\n' +
+          'คอลัมน์ที่รองรับ: item_name, unit, quantity, unit_price, ' +
+          'labor_rate, material_rate, work_type, category, item_no, note');
+        return;
+      }
+
+      let imported = 0, failed = 0;
+      for (const line of rows) {
+        const cols = line.split(',').map(c => c.trim().replace(/^"|"$/g, ''));
+        if (!cols[idxName]) continue;
+        try {
+          await createBOQItem({
+            projectId,
+            itemName: cols[idxName],
+            itemNo: idxNo >= 0 ? cols[idxNo] || '' : '',
+            category: idxCat >= 0 ? cols[idxCat] || '' : '',
+            workType: idxWorkType >= 0 ? cols[idxWorkType] || '' : '',
+            unit: idxUnit >= 0 ? cols[idxUnit] || '' : '',
+            quantity: idxQty >= 0 ? parseFloat(cols[idxQty]) || 0 : 0,
+            unitPrice: idxPrice >= 0 ? parseFloat(cols[idxPrice]) || 0 : 0,
+            laborRate: idxLabor >= 0 ? parseFloat(cols[idxLabor]) || 0 : 0,
+            materialRate: idxMat >= 0 ? parseFloat(cols[idxMat]) || 0 : 0,
+            note: idxNote >= 0 ? cols[idxNote] || '' : '',
+          });
+          imported++;
+        } catch (e) { failed++; }
+      }
+
+      await load();
+      Alert.alert('Import เสร็จสิ้น',
+        `✅ เพิ่มสำเร็จ ${imported} รายการ\n` +
+        (failed > 0 ? `❌ ล้มเหลว ${failed} รายการ` : ''));
+    } catch (e) {
+      Alert.alert('ผิดพลาด', e.message);
+    }
+  };
 
   const totalValue = items.reduce((s, it) => s + (it.total_price || 0), 0);
   const totalLabor = items.reduce((s, it) => s + (it.labor_rate * it.quantity || 0), 0);
@@ -164,7 +236,8 @@ export default function BOQScreen({ route, navigation }) {
             totalLabor={totalLabor} totalMaterial={totalMaterial}
             onEdit={(it) => { setEditingItem(it); setShowForm(true); }}
             onDelete={handleDelete}
-            onAdd={() => { setEditingItem(null); setShowForm(true); }} />
+            onAdd={() => { setEditingItem(null); setShowForm(true); }}
+            onImportCSV={handleImportCSV} />
         )}
 
         {tab === 'compare' && (
@@ -185,7 +258,7 @@ export default function BOQScreen({ route, navigation }) {
 // ============================================================
 // TAB: Items
 // ============================================================
-function ItemsTab({ items, totalValue, totalLabor, totalMaterial, onEdit, onDelete, onAdd }) {
+function ItemsTab({ items, totalValue, totalLabor, totalMaterial, onEdit, onDelete, onAdd, onImportCSV }) {
   return (
     <View>
       {/* Summary */}
@@ -229,8 +302,12 @@ function ItemsTab({ items, totalValue, totalLabor, totalMaterial, onEdit, onDele
         </Card>
       )}
 
-      <Button title="เพิ่มรายการ BOQ" icon="add-circle-outline"
-        onPress={onAdd} style={{ marginBottom: 16 }} />
+      <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
+        <Button title="เพิ่มรายการ" icon="add-circle-outline"
+          onPress={onAdd} style={{ flex: 2 }} />
+        <Button title="Import CSV" variant="outline" icon="cloud-upload-outline"
+          onPress={onImportCSV} style={{ flex: 1 }} />
+      </View>
 
       {items.length > 0 ? items.map(it => {
         const wt = WORK_TYPE_MAP[it.work_type];

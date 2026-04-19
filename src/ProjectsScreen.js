@@ -236,7 +236,7 @@ export function AddProjectScreen({ navigation }) {
             setForm(p => ({ ...p, endDate: endStr }));
           }
         }
-      } catch {}
+      } catch { }
     }
   }, [form.ntpDate, form.durationDays]);
 
@@ -634,7 +634,7 @@ export function AddProjectScreen({ navigation }) {
 
             <Input label="ผู้จัดการโครงการ (PM)"
               value={user?.full_name || ''}
-              onChangeText={() => {}}
+              onChangeText={() => { }}
               placeholder="คุณเป็น PM เริ่มต้น"
               icon="person-outline" />
             <Text style={{ fontSize: 11, color: C.textLight, marginTop: -12, marginBottom: 16 }}>
@@ -740,7 +740,7 @@ export function ProjectDetailScreen({ route, navigation }) {
     try {
       Clipboard.setString(code);
       Alert.alert('คัดลอกแล้ว', `รหัส ${code} ถูกคัดลอกเรียบร้อย`);
-    } catch {}
+    } catch { }
   };
 
   if (!project) return <View style={{ flex: 1, backgroundColor: C.bg }} />;
@@ -761,7 +761,7 @@ export function ProjectDetailScreen({ route, navigation }) {
       }}>
         {[
           { key: 'info', label: 'ข้อมูล' },
-          { key: 'tasks', label: `งาน (${project.tasks?.length || 0})` },
+          { key: 'gantt', label: 'แผนงาน' },
           { key: 'boq', label: `BOQ (${project.boqItems?.length || 0})` },
           { key: 'docs', label: `เอกสาร (${project.documents?.length || 0})` },
         ].map(t => {
@@ -771,6 +771,8 @@ export function ProjectDetailScreen({ route, navigation }) {
               onPress={() => {
                 if (t.key === 'boq') {
                   navigation.navigate('BOQ', { projectId });
+                } else if (t.key === 'gantt') {
+                  navigation.navigate('GanttTasks', { projectId });
                 } else {
                   setTab(t.key);
                 }
@@ -870,6 +872,10 @@ export function ProjectDetailScreen({ route, navigation }) {
                 </View>
               ) : null}
             </Card>
+
+            <Button title="แผนงาน Gantt (MS Project-style)"
+              onPress={() => navigation.navigate('GanttTasks', { projectId })}
+              icon="calendar-outline" style={{ marginTop: 8 }} />
 
             <Button title="จัดการ BOQ และเทียบผลงาน"
               onPress={() => navigation.navigate('BOQ', { projectId })}

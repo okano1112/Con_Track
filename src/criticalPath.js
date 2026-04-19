@@ -1,10 +1,11 @@
 // criticalPath.js
 // ============================================================
 // Critical Path Method (CPM) + Rain Delay Analysis
-// - คำนวณ Early/Late Start/Finish + Slack
-// - หางานที่อยู่บน Critical Path
-// - วิเคราะห์ผลกระทบเมื่อฝนตก/งานถูกบล็อก
-// - แนะนำงานทดแทนที่ทำได้ในร่ม
+// v7: เชื่อมคนงาน + สภาพอากาศ ครบวงจร
+// - คำนวณ ES/EF/LS/LF/Slack/isCritical
+// - วิเคราะห์ผลกระทบเมื่อฝนตก (ใช้ weather forecast จริง)
+// - คำนวณ duration ใหม่จากผลผลิตของทีมที่ assign
+// - แนะนำงานทดแทนในร่ม
 // ============================================================
 
 // งานกลางแจ้ง (ฝนตกทำไม่ได้)
@@ -20,17 +21,13 @@ export const INDOOR_WORK_KEYWORDS = [
 ];
 
 // ============================================================
-// Helpers
+// Helpers — Base
 // ============================================================
 
-// รองรับ depends_on ทั้งแบบ string (comma-separated UUID) และแบบ array
 export function parseDependencies(task) {
   if (!task || !task.depends_on) return [];
   if (Array.isArray(task.depends_on)) return task.depends_on.filter(Boolean);
-  return String(task.depends_on)
-    .split(',')
-    .map(s => s.trim())
-    .filter(Boolean);
+  return String(task.depends_on).split(',').map(s => s.trim()).filter(Boolean);
 }
 
 export function isOutdoorTask(task) {
@@ -43,7 +40,6 @@ export function isIndoorTask(task) {
   return INDOOR_WORK_KEYWORDS.some(kw => text.includes(kw.toLowerCase()));
 }
 
-// จำนวนวันระหว่าง 2 วันที่ (ISO string หรือ Date)
 export function daysBetween(d1, d2) {
   const a = new Date(d1);
   const b = new Date(d2);
@@ -63,14 +59,83 @@ export function formatDate(date) {
 }
 
 // ============================================================
-// Topological Sort (Kahn's algorithm)
-// เพื่อให้ประมวลผลตามลำดับ dependency ที่ถูกต้อง
+// NEW v7: Weather Integration
 // ============================================================
 
+/**
+ * นับวันฝนตก (rainProb ≥ 60%) ในช่วงวันที่กำหนด
+ * @param {string|Date} startISO - วันเริ่ม
+ * @param {string|Date} endISO - วันจบ
+ * @param {object} weatherForecast - { forecast: [{date, rainProb, ...}] }
+ * @returns {number} จำนวนวันฝนตก
+ */
+export function countRainyDays(startISO, endISO, weatherForecast) {
+  if (!startISO || !weatherForecast?.forecast) return 0;
+  const start = new Date(startISO);
+  const end = new Date(endISO || startISO);
+  let count = 0;
+  for (const day of weatherForecast.forecast) {
+    const d = new Date(day.date);
+    if (d >= start && d <= end && day.rainProb >= 60) count++;
+  }
+  return count;
+}
+
+// ============================================================
+// NEW v7: Worker Integration
+// ============================================================
+
+/**
+ * คำนวณผลผลิตรวมของทีม (หน่วย/วัน) สำหรับประเภทงานที่กำหนด
+ * @param {Array} workers - ทีมที่ assign (พร้อม records)
+ * @param {string} workType - ประเภทงาน (ต้องตรงกับ work_type ใน records)
+ * @returns {number} ผลผลิตรวม หน่วย/วัน
+ */
+export function teamProductivity(workers, workType) {
+  if (!workers || workers.length === 0 || !workType) return 0;
+  let totalOutput = 0;
+  for (const w of workers) {
+    const recs = (w.records || []).filter(r => r.work_type === workType);
+    if (recs.length > 0) {
+      const avg = recs.reduce((s, r) => s + (r.output || 0), 0) / recs.length;
+      totalOutput += avg;
+    }
+  }
+  return totalOutput;
+}
+
+/**
+ * ปรับ duration_days ของ task ตามผลผลิตของทีม
+ * @param {object} task - { quantity, work_type }
+ * @param {Array} assignedWorkers - ทีมที่มอบหมาย
+ * @param {string} workType - ประเภทงาน
+ * @param {number} quantity - ปริมาณงานทั้งหมด (หน่วย)
+ * @returns {object} { adjustedDuration, productivity, note }
+ */
+export function adjustDurationByTeam(task, assignedWorkers, workType, quantity) {
+  const productivity = teamProductivity(assignedWorkers, workType);
+  if (productivity <= 0 || !quantity || quantity <= 0) {
+    return {
+      adjustedDuration: task.duration_days || 1,
+      productivity: 0,
+      note: 'ไม่มีข้อมูลผลผลิตของทีม — ใช้ duration เดิม',
+    };
+  }
+  const adjusted = Math.ceil(quantity / productivity);
+  return {
+    adjustedDuration: adjusted,
+    productivity,
+    note: `ทีมทำได้ ${productivity.toFixed(1)} หน่วย/วัน → ${quantity} หน่วย ต้องใช้ ${adjusted} วัน`,
+  };
+}
+
+// ============================================================
+// Topological Sort (Kahn's algorithm)
+// ============================================================
 function topologicalSort(tasks) {
   const taskMap = new Map(tasks.map(t => [t.id, t]));
   const inDegree = new Map(tasks.map(t => [t.id, 0]));
-  const adj = new Map(tasks.map(t => [t.id, []])); // parent -> [children]
+  const adj = new Map(tasks.map(t => [t.id, []]));
 
   for (const t of tasks) {
     const deps = parseDependencies(t);
@@ -94,27 +159,26 @@ function topologicalSort(tasks) {
     }
   }
 
-  // ถ้า sorted.length !== tasks.length → มี cycle (ข้อมูลผิด)
   if (sorted.length !== tasks.length) {
     console.warn('[CPM] Dependency cycle detected — using partial order');
-    // ใส่งานที่เหลือเข้าไปตามลำดับเดิม
     const included = new Set(sorted.map(t => t.id));
     for (const t of tasks) if (!included.has(t.id)) sorted.push(t);
   }
-
   return sorted;
 }
 
 // ============================================================
-// CPM Core — คำนวณ ES / EF / LS / LF / Slack / isCritical
+// CPM Core — ES/EF/LS/LF/Slack
 // ============================================================
-
 export function calculateCPM(rawTasks, projectStartDate) {
   if (!rawTasks || rawTasks.length === 0) {
-    return { tasks: [], projectDurationDays: 0, projectStart: new Date(projectStartDate), criticalTaskIds: [] };
+    return {
+      tasks: [], projectDurationDays: 0,
+      projectStart: new Date(projectStartDate),
+      criticalTaskIds: []
+    };
   }
 
-  // copy + เติมค่า default
   const tasks = rawTasks.map(t => ({
     ...t,
     duration_days: Math.max(1, parseInt(t.duration_days) || 1),
@@ -124,41 +188,29 @@ export function calculateCPM(rawTasks, projectStartDate) {
   const taskMap = new Map(tasks.map(t => [t.id, t]));
   const sorted = topologicalSort(tasks);
 
-  // ---- Forward pass ----
+  // Forward pass
   for (const t of sorted) {
     const deps = parseDependencies(t);
-    if (deps.length === 0) {
-      t.ES = 0;
-    } else {
-      t.ES = Math.max(0, ...deps.map(id => {
-        const d = taskMap.get(id);
-        return d ? d.EF : 0;
-      }));
-    }
+    t.ES = deps.length === 0 ? 0 :
+      Math.max(0, ...deps.map(id => taskMap.get(id)?.EF || 0));
     t.EF = t.ES + t.duration_days;
   }
 
   const projectDuration = Math.max(...tasks.map(t => t.EF));
 
-  // ---- Backward pass ----
+  // Backward pass
   for (const t of [...sorted].reverse()) {
-    // หางานที่ depend บน t นี้
-    const successors = tasks.filter(other => {
-      const deps = parseDependencies(other);
-      return deps.includes(t.id);
-    });
-
-    if (successors.length === 0) {
-      t.LF = projectDuration; // งานปลายทาง
-    } else {
-      t.LF = Math.min(...successors.map(s => s.LS));
-    }
+    const successors = tasks.filter(other =>
+      parseDependencies(other).includes(t.id)
+    );
+    t.LF = successors.length === 0
+      ? projectDuration
+      : Math.min(...successors.map(s => s.LS));
     t.LS = t.LF - t.duration_days;
     t.slack = t.LS - t.ES;
     t.isCritical = t.slack === 0;
   }
 
-  // แปลง ES/EF/LS/LF เป็นวันที่จริง
   const startDate = new Date(projectStartDate);
   for (const t of tasks) {
     t.esDate = addDays(startDate, t.ES);
@@ -177,18 +229,56 @@ export function calculateCPM(rawTasks, projectStartDate) {
 }
 
 // ============================================================
-// Rain Delay Analysis — คำนวณผลกระทบต่อโครงการ
+// NEW v7: CPM + Weather Integration
 // ============================================================
 
 /**
- * วิเคราะห์ผลกระทบเมื่องานบางงานถูกบล็อก (เช่น ฝนตก)
+ * CPM ที่คำนึงถึงสภาพอากาศจริง
+ * เพิ่มวันฝนตกเข้าไปใน duration ของงานกลางแจ้งก่อนรัน CPM
  *
- * @param {Array} blockedTaskIds - id ของงานที่ถูกบล็อก
- * @param {Array} allTasks - งานทั้งหมดในโครงการ
- * @param {number} daysBlocked - จำนวนวันที่บล็อก (เช่น ฝนตก 3 วัน)
- * @param {string|Date} projectStartDate - วันเริ่มโครงการ
- * @returns {object} ผลวิเคราะห์พร้อม reasoning
+ * @param {Array} tasks - รายการงาน
+ * @param {string|Date} projectStart - วันเริ่มโครงการ
+ * @param {object} weatherForecast - พยากรณ์อากาศ
+ * @returns {object} ผล CPM + rain impact details
  */
+export function calculateCPMWithWeather(tasks, projectStart, weatherForecast) {
+  if (!tasks || tasks.length === 0) {
+    return { ...calculateCPM(tasks, projectStart), rainImpactDetails: [] };
+  }
+
+  const rainImpactDetails = [];
+
+  // ปรับ duration ของงานกลางแจ้ง (เพิ่มวันฝนตก)
+  const adjustedTasks = tasks.map(t => {
+    if (!isOutdoorTask(t)) return { ...t };
+
+    const start = t.start_date || projectStart;
+    const end = t.end_date || start;
+    const rainyDays = countRainyDays(start, end, weatherForecast);
+
+    if (rainyDays === 0) return { ...t };
+
+    rainImpactDetails.push({
+      taskId: t.id,
+      taskName: t.name,
+      originalDuration: t.duration_days,
+      rainyDays,
+      newDuration: (t.duration_days || 1) + rainyDays,
+    });
+
+    return {
+      ...t,
+      duration_days: (t.duration_days || 1) + rainyDays,
+    };
+  });
+
+  const result = calculateCPM(adjustedTasks, projectStart);
+  return { ...result, rainImpactDetails };
+}
+
+// ============================================================
+// Rain Delay Analysis (เดิม)
+// ============================================================
 export function analyzeBlockImpact(blockedTaskIds, allTasks, daysBlocked, projectStartDate) {
   const cpm = calculateCPM(allTasks, projectStartDate);
   const blocked = blockedTaskIds
@@ -207,7 +297,6 @@ export function analyzeBlockImpact(blockedTaskIds, allTasks, daysBlocked, projec
     };
   }
 
-  // ผลกระทบต่อโครงการ = max ของ (daysBlocked − slack) ของแต่ละงาน
   let maxProjectDelay = 0;
   const details = blocked.map(t => {
     const effectiveDelay = Math.max(0, daysBlocked - t.slack);
@@ -215,31 +304,24 @@ export function analyzeBlockImpact(blockedTaskIds, allTasks, daysBlocked, projec
 
     let reasoning;
     if (t.isCritical) {
-      reasoning =
-        `งาน "${t.name}" อยู่บน Critical Path (slack = 0 วัน) ` +
+      reasoning = `งาน "${t.name}" อยู่บน Critical Path (slack = 0 วัน) ` +
         `การถูกบล็อก ${daysBlocked} วัน ส่งผลให้โครงการยืดออกไป ${daysBlocked} วันเต็ม ` +
         `เพราะงานนี้ไม่มี "เวลาสำรอง" — ถ้าช้า 1 วัน ปลายทางช้า 1 วันทันที`;
     } else if (effectiveDelay === 0) {
-      reasoning =
-        `งาน "${t.name}" มี slack ${t.slack} วัน (เวลาสำรองก่อนกระทบงานถัดไป) ` +
+      reasoning = `งาน "${t.name}" มี slack ${t.slack} วัน (เวลาสำรองก่อนกระทบงานถัดไป) ` +
         `การถูกบล็อก ${daysBlocked} วัน < slack ${t.slack} วัน ` +
         `→ โครงการไม่ถูกกระทบ แต่ slack จะเหลือ ${t.slack - daysBlocked} วัน (ลดลง)`;
     } else {
-      reasoning =
-        `งาน "${t.name}" มี slack ${t.slack} วัน ` +
+      reasoning = `งาน "${t.name}" มี slack ${t.slack} วัน ` +
         `การถูกบล็อก ${daysBlocked} วัน เกิน slack ไป ${effectiveDelay} วัน ` +
         `→ โครงการจะยืดออกไป ${effectiveDelay} วัน (${daysBlocked} − ${t.slack})`;
     }
 
     return {
-      taskId: t.id,
-      taskName: t.name,
-      isCritical: t.isCritical,
-      slack: t.slack,
-      daysBlocked,
-      effectiveDelay,
-      esDate: t.esDate,
-      efDate: t.efDate,
+      taskId: t.id, taskName: t.name,
+      isCritical: t.isCritical, slack: t.slack,
+      daysBlocked, effectiveDelay,
+      esDate: t.esDate, efDate: t.efDate,
       reasoning,
     };
   });
@@ -257,19 +339,8 @@ export function analyzeBlockImpact(blockedTaskIds, allTasks, daysBlocked, projec
 }
 
 // ============================================================
-// Suggest Alternative Tasks — แนะนำงานทดแทน
+// Suggest Alternative Tasks (เดิม)
 // ============================================================
-
-/**
- * หางานทดแทนที่ทำได้วันนี้ (งานในร่ม + dependency พร้อม)
- * เรียงลำดับ: งาน critical path > slack น้อย > ตาม ES
- *
- * @param {Array} blockedTaskIds - id งานที่ถูกบล็อก
- * @param {Array} allTasks - งานทั้งหมด
- * @param {string|Date} projectStartDate
- * @param {string|Date} today - วันนี้
- * @returns {Array} งานแนะนำพร้อมเหตุผล
- */
 export function suggestAlternativeTasks(blockedTaskIds, allTasks, projectStartDate, today) {
   const cpm = calculateCPM(allTasks, projectStartDate);
   const daysFromStart = Math.max(0, daysBetween(projectStartDate, today));
@@ -277,13 +348,11 @@ export function suggestAlternativeTasks(blockedTaskIds, allTasks, projectStartDa
   const candidates = cpm.tasks.filter(t => {
     if (blockedTaskIds.includes(t.id)) return false;
     if ((t.progress || 0) >= 100) return false;
-    if (isOutdoorTask(t)) return false; // ฝนตก → ไม่เอางานกลางแจ้ง
-    // dependency ต้องพร้อม — งานต้องเริ่มได้ภายในวันนี้
+    if (isOutdoorTask(t)) return false;
     if (t.ES > daysFromStart) return false;
     return true;
   });
 
-  // เรียง: critical ก่อน → slack น้อยก่อน → ES น้อยก่อน
   candidates.sort((a, b) => {
     if (a.isCritical !== b.isCritical) return a.isCritical ? -1 : 1;
     if (a.slack !== b.slack) return a.slack - b.slack;
@@ -301,14 +370,12 @@ export function suggestAlternativeTasks(blockedTaskIds, allTasks, projectStartDa
 }
 
 // ============================================================
-// Demo/Test data — ใช้เวลาไม่มี gantt_tasks จริง
+// Demo Tasks
 // ============================================================
-
 export function buildDemoTasksFromProject(project) {
   const start = project.ntp_date || project.start_date || new Date().toISOString().split('T')[0];
   const total = parseInt(project.duration_days) || 100;
 
-  // แบ่งเป็น 6 phase มาตรฐาน
   const phases = [
     { id: 'demo-1', name: 'งานเตรียมพื้นที่ / ขุดดิน', ratio: 0.1 },
     { id: 'demo-2', name: 'เทฐานราก (คสล.)', ratio: 0.15, depends: ['demo-1'] },
@@ -319,11 +386,8 @@ export function buildDemoTasksFromProject(project) {
   ];
 
   return phases.map(p => ({
-    id: p.id,
-    project_id: project.id,
-    name: p.name,
-    start_date: start,
-    end_date: start,
+    id: p.id, project_id: project.id, name: p.name,
+    start_date: start, end_date: start,
     duration_days: Math.max(1, Math.round(total * p.ratio)),
     progress: 0,
     depends_on: (p.depends || []).join(','),
