@@ -23,7 +23,7 @@ const SYNC_TABLES = [
 // Debounce trigger — เรียกหลัง insert/update/delete
 // ============================================================
 let debounceTimer = null;
-const DEBOUNCE_MS = 1500; // รอ 1.5 วิหลัง action สุดท้าย ค่อยยิง sync
+const DEBOUNCE_MS = 100; // รอ 1.5 วิหลัง action สุดท้าย ค่อยยิง sync
 
 export function triggerSync() {
   if (debounceTimer) clearTimeout(debounceTimer);
@@ -249,17 +249,16 @@ export function startAutoSync() {
 
   // 2. Interval เช็คทุก 30 วิ — ทำทั้ง push และ pull
   syncInterval = setInterval(async () => {
-    const online = await checkOnline();
-    if (!online) return;
-    try {
-      const pending = await getPendingCount();
-      if (pending > 0) await push();
-      // Pull ทุก 30 วิ เพื่อรับข้อมูลจากเครื่องอื่น
-      await pull();
-    } catch (e) {
-      console.log('[Sync] Interval error:', e);
-    }
-  }, 30000);
+  const online = await checkOnline();
+  if (!online) return;
+  try {
+    const pending = await getPendingCount();
+    if (pending > 0) await push();
+    await pull();
+  } catch (e) {
+    console.log('[Sync] Interval error:', e);
+  }
+}, 10000);
 
   // 3. Initial sync ตอนเปิดแอป
   syncAll().then(r => {

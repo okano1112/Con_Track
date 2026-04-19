@@ -21,44 +21,76 @@ export default function JoinProjectScreen({ navigation }) {
   const [result, setResult] = useState(null); // { project, invite, error }
 
   const handleSearch = async () => {
-    const trimmed = code.trim().toUpperCase();
-    if (!trimmed) {
-      Alert.alert('แจ้งเตือน', 'กรุณากรอกรหัสโครงการ');
-      return;
-    }
+  const trimmed = code.trim().toUpperCase();
+  if (!trimmed) {
+    Alert.alert('แจ้งเตือน', 'กรุณากรอกรหัสโครงการ');
+    return;
+  }
 
-    setSearching(true);
-    setResult(null);
-    try {
-      const r = await findProjectByCode(trimmed);
-      setResult(r);
-    } catch (e) {
-      setResult({ error: e.message || 'เกิดข้อผิดพลาด' });
-    } finally {
-      setSearching(false);
-    }
-  };
+  setSearching(true);
+  setResult(null);
+  try {
+    console.log('[Join] Searching for code:', trimmed);
+    const r = await findProjectByCode(trimmed);
+    console.log('[Join] Search result:', JSON.stringify(r, null, 2));  // ← ดู log นี้
+    setResult(r);
+  } catch (e) {
+    console.log('[Join] Search error:', e);
+    setResult({ error: e.message || 'เกิดข้อผิดพลาด' });
+  } finally {
+    setSearching(false);
+  }
+};
 
-  const handleJoin = async () => {
-    if (!result?.project) return;
-    setJoining(true);
-    try {
-      if (result.invite) {
-        await useInviteCode(result.invite.id, user?.id);
+const handleJoin = async () => {
+  if (!result?.project) return;
+  setJoining(true);
+  try {
+    if (result.invite) {
+      await useInviteCode(result.invite.id, user?.id);
+    } else {
+      // กรณีใช้ project_code ตรงๆ (ไม่ได้ผ่าน invite)
+      // ต้องสร้าง project_members เองให้ user เข้าโครงการได้
+      const { insertRow, dbGetFirst } = require('./db');
+      const existing = await dbGetFirst(
+        'SELECT id FROM project_members WHERE project_id=? AND user_id=?',
+        result.project.id, user?.id
+      );
+      if (!existing) {
+        await insertRow('project_members', {
+          project_id: result.project.id,
+          user_id: user?.id,
+          role: 'member',
+          permissions: '{}',
+        });
+        // force sync
+        try {
+          const { push } = require('./syncEngine');
+          await push();
+        } catch (e) { /* silent */ }
       }
-      Alert.alert('สำเร็จ 🎉', `เข้าร่วมโครงการ "${result.project.name}" แล้ว`, [
-        {
-          text: 'ดูโครงการ', onPress: () => {
-            navigation.replace('ProjectDetail', { projectId: result.project.id });
-          }
-        }
-      ]);
-    } catch (e) {
-      Alert.alert('ผิดพลาด', e.message || 'เข้าร่วมไม่สำเร็จ');
-    } finally {
-      setJoining(false);
     }
-  };
+
+    Alert.alert('สำเร็จ 🎉', `เข้าร่วมโครงการ "${result.project.name}" แล้ว`, [
+      {
+        text: 'ดูโครงการ', onPress: () => {
+          // ✅ ใช้ reset แทน replace เพื่อให้ stack สะอาด
+          navigation.reset({
+            index: 1,
+            routes: [
+              { name: 'ProjectsList' },
+              { name: 'ProjectDetail', params: { projectId: result.project.id } }
+            ],
+          });
+        }
+      }
+    ]);
+  } catch (e) {
+    Alert.alert('ผิดพลาด', e.message || 'เข้าร่วมไม่สำเร็จ');
+  } finally {
+    setJoining(false);
+  }
+};
 
   return (
     <KeyboardAvoidingView style={{ flex: 1, backgroundColor: C.bg }}

@@ -344,10 +344,34 @@ export async function findProjectByCode(code) {
   const trimmed = (code || '').trim().toUpperCase();
   if (!trimmed) return null;
 
-  const invite = await dbGetFirst(
+  // ✅ STEP 1: ค้นใน local ก่อน (offline-first)
+  let invite = await dbGetFirst(
     'SELECT * FROM project_codes WHERE code=? AND is_active=1',
     trimmed
   );
+
+  // ✅ STEP 2: ถ้าไม่เจอ ให้ยิงไป Supabase หา
+  if (!invite) {
+    try {
+      const { supabase } = require('./supabaseClient');
+      const { data: remoteInvite, error } = await supabase
+        .from('project_codes')
+        .select('*')
+        .eq('code', trimmed)
+        .eq('is_active', true)
+        .maybeSingle();
+      
+      if (!error && remoteInvite) {
+        invite = remoteInvite;
+        // cache ลง local เผื่อใช้ offline ครั้งต่อไป
+        await upsertInviteLocal(remoteInvite);
+      }
+    } catch (e) {
+      console.log('[findProjectByCode] remote invite search failed:', e);
+    }
+  }
+
+  // ถ้าเจอ invite — เช็คหมดอายุและโหลด project
   if (invite) {
     if (invite.expires_at && new Date(invite.expires_at) < new Date()) {
       return { error: 'รหัสนี้หมดอายุแล้ว' };
@@ -355,24 +379,108 @@ export async function findProjectByCode(code) {
     if (invite.max_uses > 0 && invite.uses_count >= invite.max_uses) {
       return { error: 'รหัสนี้ถูกใช้ครบจำนวนแล้ว' };
     }
-    const project = await dbGetFirst('SELECT * FROM projects WHERE id=?', invite.project_id);
+
+    // โหลด project จาก local ก่อน
+    let project = await dbGetFirst('SELECT * FROM projects WHERE id=?', invite.project_id);
+    
+    // ถ้า local ไม่มี → ดึงจาก Supabase
+    if (!project) {
+      try {
+        const { supabase } = require('./supabaseClient');
+        const { data: remoteProject } = await supabase
+          .from('projects')
+          .select('*')
+          .eq('id', invite.project_id)
+          .maybeSingle();
+        
+        if (remoteProject) {
+          await upsertProjectLocal(remoteProject);
+          project = remoteProject;
+        }
+      } catch (e) {
+        console.log('[findProjectByCode] remote project fetch failed:', e);
+      }
+    }
+    
     if (project) return { project, invite };
+    return { error: 'ไม่พบข้อมูลโครงการ (อาจถูกลบ)' };
   }
 
-  const project = await dbGetFirst('SELECT * FROM projects WHERE project_code=?', trimmed);
+  // ✅ STEP 3: ลองหาจาก project_code โดยตรง (local + remote)
+  let project = await dbGetFirst('SELECT * FROM projects WHERE project_code=?', trimmed);
+  
+  if (!project) {
+    try {
+      const { supabase } = require('./supabaseClient');
+      const { data: remoteProject } = await supabase
+        .from('projects')
+        .select('*')
+        .eq('project_code', trimmed)
+        .maybeSingle();
+      
+      if (remoteProject) {
+        await upsertProjectLocal(remoteProject);
+        project = remoteProject;
+      }
+    } catch (e) {
+      console.log('[findProjectByCode] remote project_code search failed:', e);
+    }
+  }
+  
   if (project) return { project, invite: null };
-
   return { error: 'ไม่พบโครงการที่ใช้รหัสนี้' };
 }
 
+// Helper: cache ข้อมูลจาก cloud ลง local
+async function upsertProjectLocal(row) {
+  // clean boolean/object
+  const cleaned = { ...row, sync_status: 'synced' };
+  for (const k of Object.keys(cleaned)) {
+    if (typeof cleaned[k] === 'boolean') cleaned[k] = cleaned[k] ? 1 : 0;
+    if (cleaned[k] && typeof cleaned[k] === 'object') cleaned[k] = JSON.stringify(cleaned[k]);
+  }
+  
+  const keys = Object.keys(cleaned);
+  const placeholders = keys.map(() => '?').join(',');
+  const updates = keys.map(k => `${k}=excluded.${k}`).join(',');
+  const values = keys.map(k => cleaned[k]);
+  
+  await dbRun(
+    `INSERT INTO projects (${keys.join(',')}) VALUES (${placeholders}) 
+     ON CONFLICT(id) DO UPDATE SET ${updates}`,
+    values
+  );
+}
+
+async function upsertInviteLocal(row) {
+  const cleaned = { ...row, sync_status: 'synced' };
+  for (const k of Object.keys(cleaned)) {
+    if (typeof cleaned[k] === 'boolean') cleaned[k] = cleaned[k] ? 1 : 0;
+  }
+  
+  const keys = Object.keys(cleaned);
+  const placeholders = keys.map(() => '?').join(',');
+  const updates = keys.map(k => `${k}=excluded.${k}`).join(',');
+  const values = keys.map(k => cleaned[k]);
+  
+  await dbRun(
+    `INSERT INTO project_codes (${keys.join(',')}) VALUES (${placeholders}) 
+     ON CONFLICT(id) DO UPDATE SET ${updates}`,
+    values
+  );
+}
 export async function useInviteCode(inviteId, userId) {
+  if (!userId) throw new Error('ต้องล็อกอินก่อน');
+  
   const invite = await dbGetFirst('SELECT * FROM project_codes WHERE id=?', inviteId);
   if (!invite) throw new Error('ไม่พบรหัสเชิญ');
 
+  // เช็คว่าเป็นสมาชิกอยู่แล้วหรือยัง
   const existing = await dbGetFirst(
     'SELECT id FROM project_members WHERE project_id=? AND user_id=?',
     invite.project_id, userId
   );
+  
   if (!existing) {
     await insertRow('project_members', {
       project_id: invite.project_id,
@@ -382,9 +490,19 @@ export async function useInviteCode(inviteId, userId) {
     });
   }
 
+  // อัปเดต uses_count
   await updateRow('project_codes', inviteId, {
     uses_count: (invite.uses_count || 0) + 1,
   });
+
+  // ✅ Force sync ทันที (ไม่รอ debounce) เพื่อให้ push ขึ้น cloud
+  try {
+    const { push, pull } = require('./syncEngine');
+    await push();  // push การ insert project_members ขึ้นไป
+    await pull();  // pull projects ลงมาเผื่อยังไม่มี
+  } catch (e) {
+    console.log('[useInviteCode] immediate sync failed:', e);
+  }
 
   return invite.project_id;
 }
