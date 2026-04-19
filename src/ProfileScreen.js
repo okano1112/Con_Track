@@ -173,16 +173,46 @@ export default function ProfileScreen() {
                 <Ionicons name="chevron-forward" size={18} color={C.textLight} />
               </TouchableOpacity>
 
-              <TouchableOpacity
-                onPress={() => Alert.alert('ออกจากระบบ', 'ต้องการออกหรือไม่?', [
-                  { text: 'ยกเลิก' },
-                  { text: 'ออก', style: 'destructive', onPress: logout }
-                ])}
-                style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12 }}>
-                <Ionicons name="log-out-outline" size={20} color={C.danger} style={{ width: 32 }} />
-                <Text style={{ flex: 1, fontSize: 15, color: C.danger }}>ออกจากระบบ</Text>
-                <Ionicons name="chevron-forward" size={18} color={C.textLight} />
-              </TouchableOpacity>
+             <TouchableOpacity 
+  onPress={async () => {
+    try {
+      const { syncAll, getPendingCount, getFailedCount, retryFailed } = require('./syncEngine');
+      const pending = await getPendingCount();
+      const failed = await getFailedCount();
+      
+      Alert.alert(
+        'สถานะ Sync',
+        `รอ sync: ${pending} รายการ\nล้มเหลว: ${failed} รายการ\n\nต้องการบังคับ sync ทั้งหมดเลยมั้ย?`,
+        [
+          { text: 'ยกเลิก' },
+          {
+            text: 'Retry รายการล้มเหลว',
+            onPress: async () => {
+              const r = await retryFailed();
+              Alert.alert('ผลลัพธ์', `push: ${r.pushed}\nfailed: ${r.failed}`);
+            }
+          },
+          {
+            text: 'Force Sync ทั้งหมด',
+            onPress: async () => {
+              const r = await syncAll();
+              Alert.alert('ผลลัพธ์', JSON.stringify(r, null, 2));
+            }
+          }
+        ]
+      );
+    } catch (e) {
+      Alert.alert('ผิดพลาด', e.message);
+    }
+  }}
+  style={{
+    flexDirection: 'row', alignItems: 'center', paddingVertical: 12,
+    borderBottomWidth: 1, borderBottomColor: '#F3F4F6'
+  }}>
+  <Ionicons name="cloud-upload-outline" size={20} color={C.info} style={{ width: 32 }} />
+  <Text style={{ flex: 1, fontSize: 15, color: C.text }}>🔧 ตรวจสอบ Sync</Text>
+  <Ionicons name="chevron-forward" size={18} color={C.textLight} />
+</TouchableOpacity>
             </Card>
           </>
         )}
