@@ -14,6 +14,7 @@ import {
   KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { C, Card, Button, Header } from './Components';
 import {
   createProject, updateProject, getProjectById,
@@ -94,6 +95,43 @@ export default function ProjectFormScreen({ navigation, route }) {
 
   const [codeError, setCodeError] = useState('');
   const [saving, setSaving] = useState(false);
+
+  // State สำหรับ DatePicker
+  const [showPicker, setShowPicker] = useState(false);
+  const [pickerField, setPickerField] = useState(null);
+  const [pickerDate, setPickerDate] = useState(new Date());
+
+  // ฟังก์ชันเปิด DatePicker
+  const openDatePicker = (field, currentDateStr) => {
+    setPickerField(field);
+    let d = new Date();
+    if (currentDateStr) {
+      const parsed = new Date(currentDateStr);
+      if (!isNaN(parsed.getTime())) d = parsed;
+    }
+    setPickerDate(d);
+    setShowPicker(true);
+  };
+
+  // ฟังก์ชันจัดการเมื่อเลือกวันที่
+  const onDateChange = (event, selectedDate) => {
+    if (Platform.OS === 'android' || event.type === 'dismissed') {
+      setShowPicker(false);
+    }
+    if (selectedDate) {
+      setPickerDate(selectedDate);
+      const year = selectedDate.getFullYear();
+      const month = String(selectedDate.getMonth() + 1).padStart(2, '0');
+      const day = String(selectedDate.getDate()).padStart(2, '0');
+      const dateString = `${year}-${month}-${day}`;
+
+      update(pickerField, dateString);
+
+      if (Platform.OS === 'ios') {
+        setShowPicker(false);
+      }
+    }
+  };
 
   // โหลดข้อมูลเดิมถ้าเป็นโหมดแก้ไข
   useEffect(() => {
@@ -362,10 +400,11 @@ export default function ProjectFormScreen({ navigation, route }) {
           </View>
 
           <Label>วันที่ลงนามสัญญา</Label>
-          <Input
+          <DateInput
             value={form.contract_date}
-            onChangeText={v => update('contract_date', v)}
-            placeholder="YYYY-MM-DD (เช่น 2026-03-10)" />
+            placeholder="YYYY-MM-DD (เช่น 2026-03-10)"
+            onPress={() => openDatePicker('contract_date', form.contract_date)}
+          />
         </Card>
 
         {/* ============ ส่วนที่ 4: ระยะเวลา ============ */}
@@ -373,10 +412,11 @@ export default function ProjectFormScreen({ navigation, route }) {
 
         <Card>
           <Label>วันเริ่มงาน (NTP - Notice to Proceed)</Label>
-          <Input
+          <DateInput
             value={form.ntp_date}
-            onChangeText={v => update('ntp_date', v)}
-            placeholder="YYYY-MM-DD" />
+            placeholder="YYYY-MM-DD"
+            onPress={() => openDatePicker('ntp_date', form.ntp_date)}
+          />
 
           <Label>ระยะเวลา (วัน)</Label>
           <Input
@@ -442,6 +482,15 @@ export default function ProjectFormScreen({ navigation, route }) {
           </TouchableOpacity>
         </View>
 
+        {showPicker && (
+          <DateTimePicker
+            value={pickerDate}
+            mode="date"
+            display="default"
+            onChange={onDateChange}
+          />
+        )}
+
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -491,5 +540,23 @@ function Input({ style, multiline, ...props }) {
       placeholderTextColor={C.textLight}
       {...props}
     />
+  );
+}
+
+function DateInput({ value, placeholder, onPress }) {
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      style={{
+        borderWidth: 1, borderColor: C.border,
+        borderRadius: 8, padding: 10,
+        backgroundColor: '#fff', minHeight: 44,
+        justifyContent: 'center'
+      }}
+    >
+      <Text style={{ color: value ? C.text : C.textLight, fontSize: 14 }}>
+        {value || placeholder}
+      </Text>
+    </TouchableOpacity>
   );
 }
