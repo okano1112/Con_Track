@@ -1,101 +1,21 @@
 // WeatherScreen.js
 // ============================================================
-// ระบบพยากรณ์อากาศหน้างาน (Open-Meteo API)
+// ระบบพยากรณ์อากาศหน้างาน (Open-Meteo API + Geocoding ค้นหาเขต/อำเภอ)
 // ============================================================
 
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, ActivityIndicator, StyleSheet,
-  TouchableOpacity, Alert, Modal, FlatList
+  TouchableOpacity, Alert, Modal, FlatList, TextInput
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+// import Location สำหรับจัดการ GPS และแปลงพิกัดเป็นชื่อสถานที่
 import * as Location from 'expo-location';
+// import AsyncStorage สำหรับบันทึกข้อมูลลงเครื่อง (Cache) จะได้ไม่ต้องดึง API ใหม่ทุกครั้ง
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// ============================================================
-// พิกัด 77 จังหวัด
-// ============================================================
-const PROVINCE_COORDS = {
-  'พิกัดปัจจุบัน (GPS)': null,
-  'กรุงเทพมหานคร': { lat: 13.7563, lon: 100.5018 },
-  'กระบี่': { lat: 8.0863, lon: 98.9063 },
-  'กาญจนบุรี': { lat: 14.0041, lon: 99.5305 },
-  'กาฬสินธุ์': { lat: 16.4333, lon: 103.5 },
-  'กำแพงเพชร': { lat: 16.4833, lon: 99.5167 },
-  'ขอนแก่น': { lat: 16.4333, lon: 102.8333 },
-  'จันทบุรี': { lat: 12.6167, lon: 102.1 },
-  'ฉะเชิงเทรา': { lat: 13.6833, lon: 101.0667 },
-  'ชลบุรี': { lat: 13.3667, lon: 100.9833 },
-  'ชัยนาท': { lat: 15.1833, lon: 100.1167 },
-  'ชัยภูมิ': { lat: 15.8, lon: 102.0333 },
-  'ชุมพร': { lat: 10.5, lon: 99.1833 },
-  'เชียงราย': { lat: 19.9167, lon: 99.8333 },
-  'เชียงใหม่': { lat: 18.7833, lon: 98.9833 },
-  'ตรัง': { lat: 7.55, lon: 99.6167 },
-  'ตราด': { lat: 12.2333, lon: 102.5167 },
-  'ตาก': { lat: 16.8833, lon: 99.1167 },
-  'นครนายก': { lat: 14.2, lon: 101.2167 },
-  'นครปฐม': { lat: 13.8167, lon: 100.0667 },
-  'นครพนม': { lat: 17.4, lon: 104.7833 },
-  'นครราชสีมา': { lat: 14.9667, lon: 102.1 },
-  'นครศรีธรรมราช': { lat: 8.4333, lon: 99.9667 },
-  'นครสวรรค์': { lat: 15.7, lon: 100.1333 },
-  'นนทบุรี': { lat: 13.8667, lon: 100.5167 },
-  'นราธิวาส': { lat: 6.4167, lon: 101.8167 },
-  'น่าน': { lat: 18.7833, lon: 100.7667 },
-  'บึงกาฬ': { lat: 18.3667, lon: 103.65 },
-  'บุรีรัมย์': { lat: 14.9833, lon: 103.1 },
-  'ปทุมธานี': { lat: 14.0167, lon: 100.5333 },
-  'ประจวบคีรีขันธ์': { lat: 11.8, lon: 99.8 },
-  'ปราจีนบุรี': { lat: 14.05, lon: 101.3667 },
-  'ปัตตานี': { lat: 6.8667, lon: 101.25 },
-  'พระนครศรีอยุธยา': { lat: 14.35, lon: 100.5667 },
-  'พะเยา': { lat: 19.1667, lon: 99.9 },
-  'พังงา': { lat: 8.45, lon: 98.5333 },
-  'พัทลุง': { lat: 7.6167, lon: 100.0833 },
-  'พิจิตร': { lat: 16.4333, lon: 100.35 },
-  'พิษณุโลก': { lat: 16.8167, lon: 100.2667 },
-  'เพชรบุรี': { lat: 13.1167, lon: 99.9333 },
-  'เพชรบูรณ์': { lat: 16.4167, lon: 101.15 },
-  'แพร่': { lat: 18.1333, lon: 100.1333 },
-  'ภูเก็ต': { lat: 7.9833, lon: 98.3333 },
-  'มหาสารคาม': { lat: 16.1833, lon: 103.3 },
-  'มุกดาหาร': { lat: 16.5333, lon: 104.7167 },
-  'แม่ฮ่องสอน': { lat: 19.3, lon: 97.9667 },
-  'ยโสธร': { lat: 15.8, lon: 104.1333 },
-  'ยะลา': { lat: 6.5333, lon: 101.2833 },
-  'ร้อยเอ็ด': { lat: 16.05, lon: 103.65 },
-  'ระนอง': { lat: 9.9667, lon: 98.6333 },
-  'ระยอง': { lat: 12.6667, lon: 101.2833 },
-  'ราชบุรี': { lat: 13.5333, lon: 99.8167 },
-  'ลพบุรี': { lat: 14.8, lon: 100.6167 },
-  'ลำปาง': { lat: 18.2833, lon: 99.5 },
-  'ลำพูน': { lat: 18.5833, lon: 99.0167 },
-  'เลย': { lat: 17.4833, lon: 101.7333 },
-  'ศรีสะเกษ': { lat: 15.1167, lon: 104.3333 },
-  'สกลนคร': { lat: 17.1667, lon: 104.15 },
-  'สงขลา': { lat: 7.2, lon: 100.6 },
-  'สตูล': { lat: 6.6167, lon: 100.0667 },
-  'สมุทรปราการ': { lat: 13.6, lon: 100.6 },
-  'สมุทรสงคราม': { lat: 13.4167, lon: 100.0 },
-  'สมุทรสาคร': { lat: 13.55, lon: 100.2833 },
-  'สระแก้ว': { lat: 13.8167, lon: 102.0667 },
-  'สระบุรี': { lat: 14.5333, lon: 100.9167 },
-  'สิงห์บุรี': { lat: 14.8833, lon: 100.4 },
-  'สุโขทัย': { lat: 17.0167, lon: 99.8333 },
-  'สุพรรณบุรี': { lat: 14.4667, lon: 100.1167 },
-  'สุราษฎร์ธานี': { lat: 9.1333, lon: 99.3333 },
-  'สุรินทร์': { lat: 14.8833, lon: 103.5 },
-  'หนองคาย': { lat: 17.8833, lon: 102.7333 },
-  'หนองบัวลำภู': { lat: 17.2, lon: 102.4333 },
-  'อ่างทอง': { lat: 14.5833, lon: 100.45 },
-  'อำนาจเจริญ': { lat: 15.8667, lon: 104.6333 },
-  'อุดรธานี': { lat: 17.4167, lon: 102.7833 },
-  'อุตรดิตถ์': { lat: 17.6167, lon: 100.1 },
-  'อุทัยธานี': { lat: 15.3833, lon: 100.0333 },
-  'อุบลราชธานี': { lat: 15.2333, lon: 104.85 }
-};
-
+// สร้าง Object เก็บข้อมูลสภาพอากาศ อ้างอิงตาม WMO Weather interpretation codes ของ Open-Meteo
+// เพื่อแปลงรหัสตัวเลขเป็น คำบรรยาย, ไอคอน และสีที่จะแสดงบนหน้าจอ
 const WEATHER_CODES = {
   0: { desc: 'ท้องฟ้าแจ่มใส', icon: 'sunny', color: '#F59E0B' },
   1: { desc: 'ส่วนใหญ่แจ่มใส', icon: 'sunny', color: '#F59E0B' },
@@ -117,26 +37,30 @@ const WEATHER_CODES = {
   99: { desc: 'พายุฯ รุนแรง', icon: 'thunderstorm', color: '#5B21B6' },
 };
 
+// ฟังก์ชันสำหรับแปลงรหัส weather code เป็นข้อมูลที่ใช้แสดงผล ถ้าไม่ตรงกับเงื่อนไขด้านบนเลยจะคืนค่า Default
 function getWeatherInfo(code) {
   return WEATHER_CODES[code] || { desc: 'ไม่ทราบ', icon: 'help-circle', color: '#6B7280' };
 }
 
 // ============================================================
-// Export สำหรับ TeamCalcScreen
+// ส่วนของการทำ Caching ข้อมูล (ลดการเรียก API ซ้ำซ้อน)
+// Export สำหรับ TeamCalcScreen หรือหน้าอื่นๆ ที่ต้องการดึงข้อมูลอากาศไปใช้ต่อ
 // ============================================================
 export async function getWeatherForecast() {
   try {
-    const cached = await AsyncStorage.getItem('weatherForecast');
+    const cached = await AsyncStorage.getItem('weatherForecast'); // ดึงข้อมูลที่เคยเซฟไว้
     if (cached) {
       const data = JSON.parse(cached);
-      if (Date.now() - data.timestamp < 3600000) return data;
+      // เช็คว่าข้อมูลนี้เก่าเกิน 1 ชั่วโมง (3,600,000 มิลลิวินาที) หรือยัง
+      if (Date.now() - data.timestamp < 3600000) return data; // ถ้ายังไม่เก่า ให้ใช้ข้อมูลเดิม
     }
-    return null;
+    return null; // ถ้าไม่มีข้อมูลหรือหมดอายุแล้ว คืนค่า null เพื่อไปดึง API ใหม่
   } catch (e) { return null; }
 }
 
 export async function saveWeatherForecast(data) {
   try {
+    // เซฟข้อมูลลงเครื่อง พร้อมแนบ timestamp ปัจจุบันเข้าไปด้วยเพื่อใช้เช็คอายุข้อมูล
     await AsyncStorage.setItem('weatherForecast', JSON.stringify({
       ...data, timestamp: Date.now()
     }));
@@ -144,48 +68,64 @@ export async function saveWeatherForecast(data) {
 }
 
 // ============================================================
-// MAIN
+// MAIN COMPONENT
 // ============================================================
 export default function WeatherScreen({ navigation }) {
-  const [loading, setLoading] = useState(false);
-  const [selectedProvince, setSelectedProvince] = useState('พิกัดปัจจุบัน (GPS)');
-  const [showProvincePicker, setShowProvincePicker] = useState(false);
-  const [currentWeather, setCurrentWeather] = useState(null);
-  const [dailyForecast, setDailyForecast] = useState([]);
-  const [locationDetails, setLocationDetails] = useState({
+  // --- การประกาศ State ต่างๆ สำหรับใช้ในหน้าจอนี้ ---
+  const [loading, setLoading] = useState(false); // สถานะกำลังโหลดข้อมูล
+  const [selectedProvince, setSelectedProvince] = useState('พิกัดปัจจุบัน (GPS)'); // ชื่อสถานที่ที่เลือกแสดงบนปุ่ม
+  const [showProvincePicker, setShowProvincePicker] = useState(false); // ควบคุมการเปิด/ปิด Modal ค้นหาสถานที่
+  const [currentWeather, setCurrentWeather] = useState(null); // เก็บข้อมูลอากาศ ณ วันนี้
+  const [dailyForecast, setDailyForecast] = useState([]); // เก็บข้อมูลพยากรณ์อากาศ 7 วัน
+  const [locationDetails, setLocationDetails] = useState({ // เก็บรายละเอียดที่อยู่แบบเต็ม
     province: '', district: '', subdistrict: '', fullAddress: ''
   });
 
+  // --- State สำหรับระบบค้นหาสถานที่ ---
+  const [searchQuery, setSearchQuery] = useState(''); // คำค้นหาที่พิมพ์ลงไป
+  const [searchResults, setSearchResults] = useState([]); // ผลลัพธ์ที่ได้จากการค้นหา
+  const [isSearching, setIsSearching] = useState(false); // สถานะกำลังค้นหาข้อมูลจาก API
+
+  // useEffect จะทำงาน 1 ครั้งตอนเปิดหน้านี้ขึ้นมาครั้งแรก โดยสั่งให้ดึงพิกัด GPS ทันที
   useEffect(() => { fetchWeatherByGPS(); }, []);
 
+  // ฟังก์ชันหลัก 1: ดึงตำแหน่งปัจจุบันของผู้ใช้
   const fetchWeatherByGPS = async () => {
     try {
-      setLoading(true);
+      setLoading(true); // เริ่มหมุน Loading
+      // 1. ขอสิทธิ์เข้าถึง GPS ของเครื่อง
       let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
+      if (status !== 'granted') { // ถ้าไม่อนุญาต
         Alert.alert('ต้องการสิทธิ์', 'กรุณาเปิดสิทธิ์ GPS');
+        // บังคับกำหนดพิกัดเป็นกรุงเทพฯ (Default) แทน เพื่อให้แอปทำงานต่อได้
         fetchWeatherByCoordinates(13.7563, 100.5018, 'กรุงเทพมหานคร');
         return;
       }
 
+      // 2. ถ้าอนุญาต ก็ดึงพิกัด (ละติจูด, ลองจิจูด)
       let location = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.High
+        accuracy: Location.Accuracy.High // เอาแบบแม่นยำสูง
       });
 
+      // 3. แปลงพิกัดตัวเลข ให้กลายเป็นชื่อที่อยู่ (Reverse Geocoding)
       const [address] = await Location.reverseGeocodeAsync({
         latitude: location.coords.latitude,
         longitude: location.coords.longitude
       });
 
+      // 4. จัดเรียงข้อมูลที่อยู่ให้สวยงาม เตรียมเซฟลง State
       const locDetails = {
         province: address?.region || address?.city || '',
         district: address?.subregion || address?.district || '',
         subdistrict: address?.street || address?.name || '',
+        // เอาค่าที่มีมาต่อกันด้วยลูกน้ำ (,)
         fullAddress: [address?.name, address?.street, address?.subregion, address?.region]
           .filter(Boolean).join(', ')
       };
 
       setLocationDetails(locDetails);
+      setSelectedProvince('พิกัดปัจจุบัน (GPS)');
+      // 5. โยนพิกัดไปให้ฟังก์ชันดึงสภาพอากาศทำงานต่อ
       await fetchWeatherByCoordinates(
         location.coords.latitude, location.coords.longitude,
         locDetails.province || 'พิกัด GPS'
@@ -197,27 +137,32 @@ export default function WeatherScreen({ navigation }) {
     }
   };
 
-  const fetchWeatherByCoordinates = async (lat, lon, provinceName) => {
+  // ฟังก์ชันหลัก 2: รับพิกัดแล้วไปดึงข้อมูลพยากรณ์อากาศจาก Open-Meteo
+  const fetchWeatherByCoordinates = async (lat, lon, locationName) => {
     try {
-      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,wind_speed_10m_max&timezone=Asia%2FBangkok&forecast_days=7`;
+      // ต่อ String URL โดยส่งพารามิเตอร์ต่างๆ ไปให้ API เช่น ข้อมูลปัจจุบัน (current) ข้อมูลรายวัน (daily) และตั้งค่า timezone
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,wind_speed_10m_max&timezone=Asia%2FBangkok&forecast_days=7&models=best_match`;
 
       const response = await fetch(url);
       const data = await response.json();
 
+      // เช็คว่ามีข้อมูลตอบกลับมาครบไหม
       if (data.current && data.daily) {
+        // จัดรูปแบบข้อมูลอากาศปัจจุบัน
         const current = {
           temperature: data.current.temperature_2m,
           humidity: data.current.relative_humidity_2m,
-          apparentTemp: data.current.apparent_temperature,
+          apparentTemp: data.current.apparent_temperature, // อุณหภูมิที่รู้สึกจริง
           weatherCode: data.current.weather_code,
           windSpeed: data.current.wind_speed_10m,
-          tempMax: data.daily.temperature_2m_max[0],
+          tempMax: data.daily.temperature_2m_max[0], // อุณหภูมิสูงสุดของวันนี้ (index 0)
           tempMin: data.daily.temperature_2m_min[0],
-          rainProb: data.daily.precipitation_probability_max[0],
+          rainProb: data.daily.precipitation_probability_max[0], // โอกาสเกิดฝน
           precipitation: data.daily.precipitation_sum[0]
         };
         setCurrentWeather(current);
 
+        // จัดรูปแบบข้อมูลพยากรณ์อากาศล่วงหน้า 7 วัน (วนลูป Map ตามจำนวนวันที่ API คืนมา)
         const forecast = data.daily.time.map((date, index) => ({
           date,
           weatherCode: data.daily.weather_code[index],
@@ -229,38 +174,71 @@ export default function WeatherScreen({ navigation }) {
         }));
         setDailyForecast(forecast);
 
+        // เซฟข้อมูลเก็บไว้ใน Cache เพื่อให้ดึงไปใช้หน้าอื่นได้
         await saveWeatherForecast({
           current, forecast,
-          location: { lat, lon, province: provinceName, ...locationDetails }
+          location: { lat, lon, province: locationName, ...locationDetails }
         });
       }
     } catch (error) {
       console.log('Weather API Error:', error);
       Alert.alert('ผิดพลาด', 'ไม่สามารถดึงข้อมูลสภาพอากาศได้');
     } finally {
-      setLoading(false);
+      setLoading(false); // โหลดเสร็จแล้ว ปิด Loading
     }
   };
 
-  const handleSelectProvince = async (province) => {
-    setSelectedProvince(province);
-    setShowProvincePicker(false);
+  // ฟังก์ชันค้นหาสถานที่ (เขต/อำเภอ/จังหวัด) จากการพิมพ์ข้อความ
+  const searchLocationFromAPI = async (text) => {
+    setSearchQuery(text); // อัปเดตข้อความในช่องค้นหา
+    if (text.length < 2) { // ถ้าพิมพ์น้อยกว่า 2 ตัวอักษร ยังไม่ต้องยิง API (ลดภาระเซิร์ฟเวอร์)
+      setSearchResults([]);
+      return;
+    }
 
-    if (province === 'พิกัดปัจจุบัน (GPS)') {
-      await fetchWeatherByGPS();
-    } else {
-      const coords = PROVINCE_COORDS[province];
-      if (coords) {
-        setLocationDetails({
-          province, district: '', subdistrict: '', fullAddress: `จ.${province}`
-        });
-        setLoading(true);
-        await fetchWeatherByCoordinates(coords.lat, coords.lon, province);
+    try {
+      setIsSearching(true);
+      // ยิง API ค้นหาชื่อเมือง (Geocoding) ของ Open-Meteo จำกัด 10 ผลลัพธ์
+      const res = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(text)}&count=10&language=th&format=json`);
+      const data = await res.json();
+      if (data.results) {
+        setSearchResults(data.results); // เก็บผลลัพธ์ลง State เตรียมแสดงใน List
+      } else {
+        setSearchResults([]);
       }
+    } catch (error) {
+      console.log('Search API Error:', error);
+    } finally {
+      setIsSearching(false);
     }
   };
 
+  // เมื่อผู้ใช้กดเลือกสถานที่จากผลลัพธ์การค้นหา
+  const handleSelectSearchedLocation = async (item) => {
+    // สร้างชื่อสถานที่ให้ดูเข้าใจง่าย เช่น "บางกะปิ, กรุงเทพมหานคร"
+    const displayName = `${item.name}${item.admin1 ? `, ${item.admin1}` : ''}`;
+    
+    // อัปเดต State ให้ UI เปลี่ยนแปลงตามที่เลือก
+    setSelectedProvince(displayName);
+    setShowProvincePicker(false); // ปิด Modal ค้นหา
+    setSearchQuery(''); // เคลียร์ช่องค้นหา
+    setSearchResults([]); // เคลียร์ลิสต์ผลลัพธ์
+    
+    setLocationDetails({
+      province: item.admin1 || '',
+      district: item.name || '',
+      subdistrict: '',
+      fullAddress: displayName
+    });
+
+    setLoading(true);
+    // ดึงสภาพอากาศใหม่ โดยใช้พิกัดจากสถานที่ที่ผู้ใช้จิ้มเลือก
+    await fetchWeatherByCoordinates(item.latitude, item.longitude, displayName);
+  };
+
+  // ฟังก์ชันตรรกะประเมินสภาพอากาศเพื่องานก่อสร้าง (คำนวณจากโอกาสฝนตกและรหัสสภาพอากาศ)
   const getWorkAdvice = (rainProb, weatherCode) => {
+    // กรณีที่ 1: ฝนตกหนักมาก (โอกาสเกิดฝน >= 70% หรือ โค้ดอากาศบอกว่าฝนตกหนัก)
     if (rainProb >= 70 || weatherCode >= 65) {
       return {
         status: 'ไม่เหมาะทำงานกลางแจ้ง', statusColor: '#EF4444', icon: 'warning',
@@ -268,18 +246,21 @@ export default function WeatherScreen({ navigation }) {
         outdoorOk: false
       };
     }
+    // กรณีที่ 2: ฝนตกปานกลาง หรือโอกาสตก 40-69%
     if (rainProb >= 40 || (weatherCode >= 51 && weatherCode < 65)) {
       return {
         status: 'ระวังฝนตก', statusColor: '#F59E0B', icon: 'alert-circle',
         advice: '⚠️ เตรียมผ้าใบคลุมวัสดุ\n⏰ เร่งงานกลางแจ้งช่วงเช้า', outdoorOk: true
       };
     }
+    // กรณีที่ 3: ปลอดโปร่ง
     return {
       status: 'เหมาะสำหรับทุกงาน', statusColor: '#10B981', icon: 'checkmark-circle',
       advice: '✅ อากาศเอื้ออำนวย เร่งงานกลางแจ้งได้เต็มกำลัง', outdoorOk: true
     };
   };
 
+  // ฟังก์ชันแปลงวันที่แบบสากล (ISO) ให้เป็นภาษาไทยแบบย่อ
   const formatDate = (dateStr) => {
     const date = new Date(dateStr);
     const days = ['อา.', 'จ.', 'อ.', 'พ.', 'พฤ.', 'ศ.', 'ส.'];
@@ -287,17 +268,20 @@ export default function WeatherScreen({ navigation }) {
     return `${days[date.getDay()]} ${date.getDate()} ${months[date.getMonth()]}`;
   };
 
+  // Helper function ตรวจสอบว่าใช่วันนี้ หรือ พรุ่งนี้หรือไม่
   const isToday = (s) => s === new Date().toISOString().split('T')[0];
   const isTomorrow = (s) => {
     const t = new Date(); t.setDate(t.getDate() + 1);
     return s === t.toISOString().split('T')[0];
   };
 
+  // ดึงข้อมูล UI (สี, ไอคอน, คำบรรยาย) และ คำแนะนำงานก่อสร้าง มาเก็บใส่ตัวแปรไว้รอ Render
   const weatherInfo = currentWeather ? getWeatherInfo(currentWeather.weatherCode) : null;
   const workAdvice = currentWeather ? getWorkAdvice(currentWeather.rainProb, currentWeather.weatherCode) : null;
 
   return (
     <View style={styles.container}>
+      {/* --- ส่วน Header (มีปุ่มเมนู Drawer และปุ่ม Refresh) --- */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.openDrawer()} style={{ padding: 8 }}>
           <Ionicons name="menu" size={26} color="#fff" />
@@ -309,17 +293,22 @@ export default function WeatherScreen({ navigation }) {
       </View>
 
       <ScrollView contentContainerStyle={{ paddingBottom: 30 }}>
+        {/* --- Card แสดงสถานที่ปัจจุบันที่เลือกอยู่ --- */}
         <View style={styles.card}>
           <Text style={styles.label}>📍 พื้นที่ก่อสร้าง</Text>
-          <TouchableOpacity style={styles.dropdown} onPress={() => setShowProvincePicker(true)}>
+          <TouchableOpacity style={styles.dropdown} onPress={() => {
+            setShowProvincePicker(true); // กดแล้วเปิด Modal ให้ค้นหาสถานที่ใหม่
+            setSearchQuery('');
+            setSearchResults([]);
+          }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
               <Ionicons
                 name={selectedProvince === 'พิกัดปัจจุบัน (GPS)' ? 'navigate' : 'location'}
                 size={20}
                 color={selectedProvince === 'พิกัดปัจจุบัน (GPS)' ? '#3B82F6' : '#0F2654'} />
-              <Text style={styles.dropdownText}>{selectedProvince}</Text>
+              <Text style={styles.dropdownText} numberOfLines={1}>{selectedProvince}</Text>
             </View>
-            <Ionicons name="chevron-down" size={20} color="#6B7280" />
+            <Ionicons name="search" size={20} color="#6B7280" />
           </TouchableOpacity>
 
           {locationDetails.fullAddress && (
@@ -334,13 +323,17 @@ export default function WeatherScreen({ navigation }) {
         </View>
 
         {loading ? (
+          // ระหว่างดึง API ให้โชว์ Spinner หมุนๆ
           <View style={{ alignItems: 'center', paddingVertical: 60 }}>
             <ActivityIndicator size="large" color="#0F2654" />
             <Text style={{ marginTop: 12, color: '#6B7280' }}>กำลังดึงข้อมูล...</Text>
           </View>
         ) : currentWeather ? (
+          // ถ้ามีข้อมูลสภาพอากาศ ให้แสดง UI ส่วนนี้
           <>
+            {/* --- Card แสดงอุณหภูมิและสภาพอากาศวันนี้ --- */}
             <View style={[styles.weatherCard, { backgroundColor: weatherInfo.color }]}>
+              {/* เปลี่ยนสีพื้นหลังอัตโนมัติตามสภาพอากาศ */}
               <View style={styles.weatherCardHeader}>
                 <View>
                   <Text style={styles.weatherDate}>วันนี้ • {formatDate(new Date().toISOString().split('T')[0])}</Text>
@@ -350,14 +343,17 @@ export default function WeatherScreen({ navigation }) {
               </View>
 
               <View style={styles.tempContainer}>
+                {/* อุณหภูมิปัจจุบัน */}
                 <Text style={styles.tempMain}>{Math.round(currentWeather.temperature)}°</Text>
                 <View style={styles.tempRange}>
+                  {/* อุณหภูมิสูงสุด */}
                   <View style={styles.tempItem}>
                     <Ionicons name="arrow-up" size={16} color="#FEF3C7" />
                     <Text style={styles.tempLabel}>สูงสุด</Text>
                     <Text style={styles.tempValue}>{Math.round(currentWeather.tempMax)}°</Text>
                   </View>
                   <View style={styles.tempDivider} />
+                  {/* อุณหภูมิต่ำสุด */}
                   <View style={styles.tempItem}>
                     <Ionicons name="arrow-down" size={16} color="#BFDBFE" />
                     <Text style={styles.tempLabel}>ต่ำสุด</Text>
@@ -366,6 +362,7 @@ export default function WeatherScreen({ navigation }) {
                 </View>
               </View>
 
+              {/* แถบสถิติอื่นๆ (ความชื้น, โอกาสฝนตก, ความเร็วลม) */}
               <View style={styles.statsRow}>
                 <View style={styles.statItem}>
                   <Ionicons name="water" size={20} color="rgba(255,255,255,0.8)" />
@@ -390,6 +387,7 @@ export default function WeatherScreen({ navigation }) {
               </View>
             </View>
 
+            {/* --- Card คำแนะนำการทำงาน (แสดงเฉพาะตอนที่ตัวแปร workAdvice ถูกคำนวณแล้ว) --- */}
             {workAdvice && (
               <View style={styles.card}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
@@ -405,8 +403,10 @@ export default function WeatherScreen({ navigation }) {
               </View>
             )}
 
+            {/* --- Card พยากรณ์อากาศล่วงหน้า 7 วัน --- */}
             <View style={styles.card}>
               <Text style={styles.sectionTitle}>📅 พยากรณ์ 7 วัน</Text>
+              {/* วนลูปสร้างรายการแต่ละวัน */}
               {dailyForecast.map((day) => {
                 const dayWeather = getWeatherInfo(day.weatherCode);
                 const dayAdvice = getWorkAdvice(day.rainProb, day.weatherCode);
@@ -435,6 +435,7 @@ export default function WeatherScreen({ navigation }) {
                         <Text style={{ color: '#6B7280' }}> / </Text>
                         <Text style={{ color: '#3B82F6' }}>{Math.round(day.tempMin)}°</Text>
                       </Text>
+                      {/* ถ้าทำงานกลางแจ้งไม่ได้ ให้โชว์ป้ายเตือนสีแดง */}
                       {!dayAdvice.outdoorOk && (
                         <View style={styles.warningBadge}>
                           <Text style={styles.warningText}>งดกลางแจ้ง</Text>
@@ -447,6 +448,7 @@ export default function WeatherScreen({ navigation }) {
             </View>
           </>
         ) : (
+          // ถ้าโหลด API แล้วไม่เจอข้อมูลหรือเน็ตหลุด ให้โชว์หน้านี้พร้อมปุ่ม Retry
           <View style={{ alignItems: 'center', paddingVertical: 60 }}>
             <Ionicons name="cloud-offline" size={48} color="#9CA3AF" />
             <Text style={{ marginTop: 12, color: '#6B7280' }}>ไม่มีข้อมูล</Text>
@@ -457,25 +459,68 @@ export default function WeatherScreen({ navigation }) {
         )}
       </ScrollView>
 
+      {/* --- Modal สำหรับค้นหาและเลือกสถานที่ --- */}
       <Modal visible={showProvincePicker} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>เลือกจังหวัด</Text>
-            <FlatList
-              data={Object.keys(PROVINCE_COORDS)}
-              keyExtractor={(item) => item}
-              renderItem={({ item }) => (
-                <TouchableOpacity style={styles.modalItem}
-                  onPress={() => handleSelectProvince(item)}>
-                  <Text style={[styles.modalItemText,
-                    item === selectedProvince && { fontWeight: '700', color: '#0F2654' }]}>
-                    {item}
-                  </Text>
-                  {item === selectedProvince && (
-                    <Ionicons name="checkmark-circle" size={20} color="#0F2654" />
-                  )}
+            <Text style={styles.modalTitle}>ค้นหาสถานที่ (เขต, อำเภอ)</Text>
+            
+            {/* ช่อง Input สำหรับพิมพ์ค้นหา */}
+            <View style={styles.searchBox}>
+              <Ionicons name="search" size={20} color="#6B7280" />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="พิมพ์ชื่อสถานที่..."
+                value={searchQuery}
+                onChangeText={searchLocationFromAPI} // เมื่อพิมพ์จะเรียกฟังก์ชันยิง API ค้นหา
+                autoFocus={true}
+              />
+              {/* ปุ่ม (X) สำหรับเคลียร์ข้อความ ถ้าพิมพ์ไปแล้วอย่างน้อย 1 ตัว */}
+              {searchQuery.length > 0 && (
+                <TouchableOpacity onPress={() => searchLocationFromAPI('')}>
+                  <Ionicons name="close-circle" size={20} color="#9CA3AF" />
                 </TouchableOpacity>
-              )} />
+              )}
+            </View>
+
+            {/* ปุ่มทางลัดสำหรับกลับไปใช้พิกัด GPS */}
+            <TouchableOpacity 
+              style={styles.gpsButton}
+              onPress={() => {
+                setShowProvincePicker(false);
+                fetchWeatherByGPS();
+              }}>
+              <Ionicons name="navigate" size={20} color="#fff" />
+              <Text style={styles.gpsButtonText}>ใช้ตำแหน่งปัจจุบัน (GPS)</Text>
+            </TouchableOpacity>
+
+            {/* การแสดงผลลัพธ์การค้นหา */}
+            {isSearching ? (
+              <ActivityIndicator size="small" color="#0F2654" style={{ marginTop: 20 }} />
+            ) : (
+              <FlatList
+                data={searchResults}
+                keyExtractor={(item, index) => index.toString()}
+                style={{ marginTop: 10 }}
+                renderItem={({ item }) => (
+                  <TouchableOpacity style={styles.modalItem}
+                    onPress={() => handleSelectSearchedLocation(item)}>
+                    <View>
+                      <Text style={styles.modalItemText}>{item.name}</Text>
+                      {item.admin1 && <Text style={styles.modalSubItemText}>{item.admin1}, {item.country}</Text>}
+                    </View>
+                    <Ionicons name="chevron-forward" size={16} color="#D1D5DB" />
+                  </TouchableOpacity>
+                )}
+                // ถ้าพิมพ์หาแล้วแต่ไม่เจอ (ข้อมูลเปล่า) ให้โชว์ข้อความนี้
+                ListEmptyComponent={
+                  searchQuery.length > 1 ? (
+                    <Text style={{ textAlign: 'center', marginTop: 20, color: '#6B7280' }}>ไม่พบสถานที่ที่ค้นหา</Text>
+                  ) : null
+                }
+              />
+            )}
+
             <TouchableOpacity style={styles.modalCloseBtn}
               onPress={() => setShowProvincePicker(false)}>
               <Text style={styles.modalCloseBtnText}>ปิด</Text>
