@@ -237,6 +237,11 @@ async function enqueue(tableName, action, rowId, payload) {
     `INSERT INTO sync_queue (table_name, action, row_id, payload, created_at) VALUES (?, ?, ?, ?, ?)`,
     tableName, action, rowId, JSON.stringify(payload), now()
   );
+  // Trigger sync อัตโนมัติ (debounced)
+  try {
+    const { triggerSync } = require('./syncEngine');
+    triggerSync();
+  } catch (e) { /* syncEngine ยังไม่ได้โหลด — ข้าม */ }
 }
 
 async function insertRow(tableName, data) {
@@ -716,3 +721,81 @@ export async function clearAllData() {
     DELETE FROM sync_queue;
   `);
 }
+// ============================================================
+// PROJECT MEMBERS & PERMISSIONS
+// ============================================================
+
+// ดู role ของ user ในโปรเจกต์ (ใช้เช็คสิทธิ์)
+export async function getMyRoleInProject(projectId, userId) {
+  if (!projectId || !userId) return null;
+
+  // เช็คว่าเป็น owner จากตาราง projects ก่อน (เผื่อ member ยังไม่ถูกสร้าง)
+  const project = await dbGetFirst(
+    'SELECT owner_id FROM projects WHERE id=?', projectId
+  );
+  if (project?.owner_id === userId) return 'owner';
+
+  const member = await dbGetFirst(
+    'SELECT role FROM project_members WHERE project_id=? AND user_id=?',
+    projectId, userId
+  );
+  return member?.role || null;
+}
+
+// ดูสมาชิกทั้งหมดในโปรเจกต์ + ข้อมูล profile
+export async function getProjectMembers(projectId) {
+  return await dbGetAll(`
+    SELECT pm.*,
+      pr.full_name, pr.custom_id, pr.avatar_url, pr.phone
+    FROM project_members pm
+    LEFT JOIN profiles pr ON pm.user_id = pr.id
+    WHERE pm.project_id = ?
+    ORDER BY
+      CASE pm.role
+        WHEN 'owner' THEN 1
+        WHEN 'engineer' THEN 2
+        WHEN 'foreman' THEN 3
+        ELSE 4
+      END,
+      pm.joined_at ASC
+  `, projectId);
+}
+
+// เปลี่ยน role ของสมาชิก (เฉพาะ owner ทำได้)
+export async function updateMemberRole(memberId, newRole) {
+  return await updateRow('project_members', memberId, { role: newRole });
+}
+
+// ลบสมาชิกออกจากโปรเจกต์
+export async function removeMember(memberId) {
+  return await deleteRow('project_members', memberId);
+}
+
+// เช็คสิทธิ์การทำ action
+// roles: 'owner' | 'engineer' | 'foreman' | 'member'
+export function canPerform(role, action) {
+  const ROLE_PERMISSIONS = {
+    owner: ['*'], // ทำได้ทุกอย่าง
+    engineer: [
+      'edit_project', 'add_task', 'edit_task', 'delete_task',
+      'add_document', 'delete_document', 'add_boq', 'edit_boq',
+      'delete_boq', 'invite_member', 'edit_gantt',
+    ],
+    foreman: [
+      'add_task', 'edit_task', 'add_document',
+      'add_worker_record', 'edit_worker_record',
+    ],
+    member: ['view_project', 'add_worker_record'],
+  };
+
+  const perms = ROLE_PERMISSIONS[role] || [];
+  return perms.includes('*') || perms.includes(action);
+}
+
+// รายชื่อ role ไทยพร้อม label
+export const ROLE_LABELS = {
+  owner: { label: 'เจ้าของโครงการ', color: '#EF4444', icon: 'star' },
+  engineer: { label: 'วิศวกร', color: '#3B82F6', icon: 'construct' },
+  foreman: { label: 'โฟร์แมน', color: '#F59E0B', icon: 'people' },
+  member: { label: 'สมาชิก', color: '#6B7280', icon: 'person' },
+};
