@@ -274,28 +274,10 @@ export async function findProjectByCode(code) {
   const trimmed = (code || '').trim().toUpperCase();
   if (!trimmed) return { error: 'กรุณากรอกรหัส' };
 
-  // ── Step 0: pull ข้อมูลล่าสุดจาก Supabase ก่อนค้นหา ────
-  try {
-    const { pull } = require('./syncEngine');
-    await pull();
-  } catch { /* offline */ }
-
-  // ── Step 1: ค้น invite code ──────────────────────────────
-  let invite = await dbGetFirst('SELECT * FROM project_codes WHERE code=? AND is_active=1', trimmed);
-
-  if (!invite) {
-    try {
-      const { supabase } = require('./supabaseClient');
-      const { data: ri, error: re } = await supabase
-        .from('project_codes').select('*')
-        .eq('code', trimmed).eq('is_active', true).maybeSingle();
-      if (re) console.warn('[findProjectByCode] invite query error:', re.message);
-      else if (ri) {
-        invite = ri;
-        await upsertInviteLocal(ri).catch(() => {});
-      }
-    } catch (e) { console.warn('[findProjectByCode] invite remote failed:', e?.message); }
-  }
+  // ── Step 1: ค้นใน SQLite local ก่อน (ข้อมูลที่ sync มาแล้ว) ──
+  let invite = await dbGetFirst(
+    'SELECT * FROM project_codes WHERE code=? AND is_active=1', trimmed
+  );
 
   if (invite) {
     if (invite.expires_at && new Date(invite.expires_at) < new Date())
@@ -304,30 +286,44 @@ export async function findProjectByCode(code) {
       return { error: 'รหัสนี้ถูกใช้ครบจำนวนแล้ว' };
 
     let project = await dbGetFirst('SELECT * FROM projects WHERE id=?', invite.project_id);
-    if (!project) {
-      try {
-        const { supabase } = require('./supabaseClient');
-        const { data: rp } = await supabase.from('projects').select('*').eq('id', invite.project_id).maybeSingle();
-        if (rp) { await upsertProjectLocal(rp).catch(() => {}); project = rp; }
-      } catch { }
-    }
     if (project) return { project, invite };
-    return { error: 'พบรหัสเชิญแต่ไม่พบข้อมูลโครงการ (อาจยังไม่ sync)' };
   }
 
-  // ── Step 2: ค้น project_code โดยตรง ────────────────────
-  let project = await dbGetFirst('SELECT * FROM projects WHERE project_code=?', trimmed);
-  if (!project) {
-    try {
-      const { supabase } = require('./supabaseClient');
-      const { data: rp } = await supabase.from('projects').select('*').eq('project_code', trimmed).maybeSingle();
-      if (rp) { await upsertProjectLocal(rp).catch(() => {}); project = rp; }
-    } catch { }
+  // ── Step 2: ถามผ่าน RPC function (ข้าม RLS ได้ปลอดภัย) ──
+  try {
+    const { supabase } = require('./supabaseClient');
+    const { data: rpcData, error: rpcError } = await supabase.rpc(
+      'find_project_by_code',
+      { search_code: trimmed }
+    );
+
+    if (rpcError) {
+      console.warn('[findProjectByCode] RPC error:', rpcError.message);
+    } else if (rpcData) {
+      const project = rpcData.project;
+      const remoteInvite = rpcData.invite;
+
+      // บันทึกลง local SQLite
+      if (project) await upsertProjectLocal(project).catch(() => {});
+      if (remoteInvite) await upsertInviteLocal(remoteInvite).catch(() => {});
+
+      if (remoteInvite) {
+        if (remoteInvite.expires_at && new Date(remoteInvite.expires_at) < new Date())
+          return { error: 'รหัสนี้หมดอายุแล้ว กรุณาขอรหัสใหม่จากเจ้าของโครงการ' };
+        if (remoteInvite.max_uses > 0 && remoteInvite.uses_count >= remoteInvite.max_uses)
+          return { error: 'รหัสนี้ถูกใช้ครบจำนวนแล้ว' };
+      }
+
+      if (project) return { project, invite: remoteInvite || null };
+    }
+  } catch (e) {
+    console.warn('[findProjectByCode] RPC failed:', e?.message);
   }
-  if (project) return { project, invite: null };
 
   return {
-    error: `ไม่พบโครงการรหัส "${trimmed}"\n\nสาเหตุที่เป็นไปได้:\n• รหัสผิด — ตรวจสอบตัวพิมพ์\n• เจ้าของยังไม่ได้กด Force Sync\n• Supabase RLS บล็อกการค้นหา (ดูคำแนะนำด้านล่าง)`,
+    error: `ไม่พบโครงการรหัส "${trimmed}"\n\n` +
+           `• ตรวจสอบรหัสว่าพิมพ์ถูกต้อง\n` +
+           `• ขอรหัสเชิญจากเจ้าของโครงการ`,
   };
 }
 
