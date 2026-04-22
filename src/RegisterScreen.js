@@ -6,24 +6,25 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, Alert,
-  KeyboardAvoidingView, Platform, Image, ActivityIndicator
+  KeyboardAvoidingView, Platform, Image, ActivityIndicator,
+  TextInput 
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useAuth } from './AuthContext';
 import { C, Button, Input } from './Components';
 import {
-  validateEmail, validatePassword, validateCustomId,
+  validateEmail, validatePassword, validateCustomId, validatePhone,
   checkCustomIdAvailable
 } from './authService';
 import { supabase } from './supabaseClient';
 
 export default function RegisterScreen({ navigation }) {
-  const { register } = useAuth();
+  const { register, refreshUser } = useAuth();
 
   const [form, setForm] = useState({
     customId: '', email: '', password: '', confirm: '',
-    fullName: '', phone: '', address: '', avatarUri: '',
+    fullName: '', phone: '', address: '', avatarUri: '', avatarBase64: '',  // ✅ เพิ่ม avatarBase64
   });
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState({});
@@ -47,35 +48,43 @@ export default function RegisterScreen({ navigation }) {
   }, [form.customId]);
 
   const pickImage = async () => {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (perm.status !== 'granted') {
-      Alert.alert('ต้องการสิทธิ์', 'กรุณาเปิดสิทธิ์เข้าถึงรูปภาพ');
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true, aspect: [1, 1], quality: 0.7,
-    });
-    if (!result.canceled && result.assets?.[0]?.uri) {
-      u('avatarUri', result.assets[0].uri);
-    }
-  };
+  const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+  if (perm.status !== 'granted') {
+    Alert.alert('ต้องการสิทธิ์', 'กรุณาเปิดสิทธิ์เข้าถึงรูปภาพ');
+    return;
+  }
+  const result = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: ['images'],
+    allowsEditing: true, 
+    aspect: [1, 1], 
+    quality: 0.7,
+    base64: true,  // ✅ ขอ base64 มาด้วย
+  });
+  if (!result.canceled && result.assets?.[0]) {
+    u('avatarUri', result.assets[0].uri);
+    u('avatarBase64', result.assets[0].base64);  // ✅ เก็บ base64 ไว้ใช้
+  }
+};
 
   const uploadAvatar = async (userId) => {
-    if (!form.avatarUri) return '';
+    if (!form.avatarUri || !form.avatarBase64) return '';
     try {
-      const response = await fetch(form.avatarUri);
-      const blob = await response.blob();
-      const fileExt = form.avatarUri.split('.').pop() || 'jpg';
-      const filePath = `${userId}/avatar-${Date.now()}.${fileExt}`;
+      const filePath = `${userId}/avatar-${Date.now()}.jpg`;
+
+      // ✅ ใช้ base64 แปลงเป็น binary (เหมือนที่แก้ใน ProfileScreen)
+      const binaryString = atob(form.avatarBase64);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
 
       const { error } = await supabase.storage
         .from('avatars')
-        .upload(filePath, blob, { contentType: `image/${fileExt}`, upsert: true });
+        .upload(filePath, bytes.buffer, { contentType: 'image/jpeg', upsert: true });
       if (error) throw error;
 
       const { data } = supabase.storage.from('avatars').getPublicUrl(filePath);
-      return data.publicUrl;
+      return `${data.publicUrl}?t=${Date.now()}`;  // ✅ เพิ่ม cache busting
     } catch (e) {
       console.log('Upload avatar error:', e);
       return '';
@@ -90,7 +99,7 @@ export default function RegisterScreen({ navigation }) {
     errs.password = validatePassword(form.password);
     if (form.password !== form.confirm) errs.confirm = 'รหัสผ่านไม่ตรงกัน';
     if (!form.fullName.trim()) errs.fullName = 'กรุณากรอกชื่อ-นามสกุล';
-    if (!form.phone.trim()) errs.phone = 'กรุณากรอกเบอร์โทร';
+    errs.phone = validatePhone(form.phone);  // ✅ ใช้ validatePhone แทน
 
     Object.keys(errs).forEach(k => !errs[k] && delete errs[k]);
     setErrors(errs);
@@ -122,8 +131,13 @@ export default function RegisterScreen({ navigation }) {
           if (avatarUrl) {
             await supabase.from('profiles')
               .update({ avatar_url: avatarUrl }).eq('id', user.id);
+            // ✅ Refresh user หลัง upload รูปเสร็จ เพื่อให้ context ได้ avatar_url ล่าสุด
+            await refreshUser();
           }
         }
+      } else {
+        // ไม่มีรูป ก็ refresh เพื่อโหลด profile ที่เพิ่งสร้าง
+        await refreshUser();
       }
       // onAuthStateChange จะเปลี่ยน user → navigator เข้า Main เอง
     } catch (e) {
@@ -187,38 +201,53 @@ export default function RegisterScreen({ navigation }) {
         </View>
 
         {/* Custom ID */}
-        <View style={{ marginBottom: 16 }}>
-          <Text style={{ fontSize: 14, fontWeight: '600', color: C.text, marginBottom: 6 }}>
-            ID ของคุณ (เหมือน Line ID) *
-          </Text>
-          <View style={{
-            flexDirection: 'row', alignItems: 'center',
-            backgroundColor: '#F9FAFB', borderRadius: 10,
-            borderWidth: 1, borderColor: customIdError ? C.danger : C.border,
-            paddingHorizontal: 12,
-          }}>
-            <Text style={{ color: C.textLight, fontSize: 15, marginRight: 4 }}>@</Text>
-            <View style={{ flex: 1 }}>
-              <Input value={form.customId}
-                onChangeText={v => u('customId', v.toLowerCase().replace(/\s/g, ''))}
-                placeholder="somchai_eng" />
-            </View>
-            <View style={{ marginLeft: 8 }}>{renderCustomIdStatus()}</View>
-          </View>
-          {customIdError && (
-            <Text style={{ color: C.danger, fontSize: 12, marginTop: 4 }}>{customIdError}</Text>
-          )}
-          {customIdStatus === 'available' && (
-            <Text style={{ color: C.success, fontSize: 12, marginTop: 4 }}>✓ ใช้ได้! ID นี้ว่าง</Text>
-          )}
-        </View>
+<View style={{ marginBottom: 16 }}>
+  <Text style={{ fontSize: 14, fontWeight: '600', color: C.text, marginBottom: 6 }}>
+    ID ของคุณ (เหมือน Line ID) *
+  </Text>
+  <View style={{
+    flexDirection: 'row', 
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    borderWidth: 1, 
+    borderColor: customIdError ? C.danger : C.border,
+    paddingHorizontal: 12,
+    height: 50,  // กำหนดความสูงให้เท่าช่องอื่นๆ
+  }}>
+    <Text style={{ color: C.textLight, fontSize: 15, marginRight: 4 }}>@</Text>
+    <TextInput
+      style={{
+        flex: 1,
+        fontSize: 15,
+        color: C.text,
+        paddingVertical: 0,  // ลบ padding เพื่อให้ align ตรง
+      }}
+      value={form.customId}
+      onChangeText={v => u('customId', v.toLowerCase().replace(/\s/g, ''))}
+      placeholder="somchai_eng"
+      placeholderTextColor={C.textLight}
+      autoCapitalize="none"
+      autoCorrect={false}
+    />
+    <View style={{ marginLeft: 8, width: 24, alignItems: 'center' }}>
+      {renderCustomIdStatus()}
+    </View>
+  </View>
+  {customIdError && (
+    <Text style={{ color: C.danger, fontSize: 12, marginTop: 4 }}>{customIdError}</Text>
+  )}
+  {customIdStatus === 'available' && (
+    <Text style={{ color: C.success, fontSize: 12, marginTop: 4 }}>✓ ใช้ได้! ID นี้ว่าง</Text>
+  )}
+</View>
 
         <Input label="อีเมล *" value={form.email} onChangeText={v => u('email', v)}
           placeholder="example@email.com" keyboardType="email-address"
           icon="mail-outline" error={errors.email} />
 
         <Input label="รหัสผ่าน *" value={form.password} onChangeText={v => u('password', v)}
-          placeholder="อย่างน้อย 6 ตัว" secureTextEntry
+          placeholder="อย่างน้อย 6 ตัว และมีตัวอักษร" secureTextEntry
           icon="lock-closed-outline" error={errors.password} />
 
         <Input label="ยืนยันรหัสผ่าน *" value={form.confirm}
@@ -233,9 +262,10 @@ export default function RegisterScreen({ navigation }) {
           placeholder="เช่น สมชาย ใจดี" icon="id-card-outline"
           error={errors.fullName} />
 
-        <Input label="เบอร์โทร *" value={form.phone} onChangeText={v => u('phone', v)}
+        <Input label="เบอร์โทร *" value={form.phone} 
+          onChangeText={v => u('phone', v.replace(/[^0-9]/g, ''))}
           placeholder="08x-xxx-xxxx" keyboardType="phone-pad"
-          icon="call-outline" error={errors.phone} />
+          icon="call-outline" error={errors.phone} maxLength={10} />
 
         <Input label="ที่อยู่" value={form.address} onChangeText={v => u('address', v)}
           placeholder="เช่น 99 ถ.สุขุมวิท กทม." icon="location-outline" multiline />
