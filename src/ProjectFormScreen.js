@@ -7,7 +7,7 @@
 // - วันลงนาม, NTP, ระยะเวลา (auto-calc end date)
 // - ชื่อผู้ว่าจ้าง, ที่อยู่, scope of work
 // ============================================================
-
+import { useAuth } from './AuthContext';
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, ScrollView, TextInput, TouchableOpacity, Alert,
@@ -20,7 +20,7 @@ import {
   createProject, updateProject, getProjectById,
   checkProjectCodeExists,
 } from './db';
-import { useAuth } from './AuthContext';
+
 
 // ประเภทโครงการ ตามที่ใช้จริงในวงการ
 const PROJECT_TYPES = [
@@ -62,9 +62,9 @@ const parseNum = (s) => {
 };
 
 export default function ProjectFormScreen({ navigation, route }) {
+  const { user } = useAuth();
   const editingId = route?.params?.projectId;
   const isEdit = !!editingId;
-  const { user } = useAuth();
   const [form, setForm] = useState({
     // ข้อมูลหลัก
     name: '',
