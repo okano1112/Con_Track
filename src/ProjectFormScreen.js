@@ -20,16 +20,17 @@ import {
   createProject, updateProject, getProjectById,
   checkProjectCodeExists,
 } from './db';
+import { useAuth } from './AuthContext';
 
 // ประเภทโครงการ ตามที่ใช้จริงในวงการ
 const PROJECT_TYPES = [
-  { key: 'building',     label: 'อาคาร',        prefix: 'BLD' },
-  { key: 'education',    label: 'อาคารเรียน',   prefix: 'EDU' },
-  { key: 'road',         label: 'ถนน',         prefix: 'RD' },
-  { key: 'bridge',       label: 'สะพาน',       prefix: 'BRD' },
-  { key: 'utility',      label: 'งานระบบ',     prefix: 'UTL' },
-  { key: 'renovation',   label: 'ปรับปรุง',    prefix: 'RNV' },
-  { key: 'other',        label: 'อื่นๆ',        prefix: 'OTH' },
+  { key: 'building', label: 'อาคาร', prefix: 'BLD' },
+  { key: 'education', label: 'อาคารเรียน', prefix: 'EDU' },
+  { key: 'road', label: 'ถนน', prefix: 'RD' },
+  { key: 'bridge', label: 'สะพาน', prefix: 'BRD' },
+  { key: 'utility', label: 'งานระบบ', prefix: 'UTL' },
+  { key: 'renovation', label: 'ปรับปรุง', prefix: 'RNV' },
+  { key: 'other', label: 'อื่นๆ', prefix: 'OTH' },
 ];
 
 // คำนวณวันสิ้นสุดจาก NTP + duration
@@ -63,7 +64,7 @@ const parseNum = (s) => {
 export default function ProjectFormScreen({ navigation, route }) {
   const editingId = route?.params?.projectId;
   const isEdit = !!editingId;
-
+  const { user } = useAuth();
   const [form, setForm] = useState({
     // ข้อมูลหลัก
     name: '',
@@ -256,6 +257,7 @@ export default function ProjectFormScreen({ navigation, route }) {
         address: form.address.trim(),
         scope_of_work: form.scope_of_work.trim(),
         status: form.status,
+        owner_id: user?.id,
       };
 
       if (isEdit) {
