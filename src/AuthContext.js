@@ -1,6 +1,11 @@
+// AuthContext.js
+// ============================================================
+// AuthContext - จัดการสถานะ login ทั้งแอป
+// ============================================================
+
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { login as dbLogin, register as dbRegister, getUserById } from './db';
+import { supabase } from './supabaseClient';
+import * as auth from './authService';
 
 const AuthContext = createContext(null);
 
@@ -8,42 +13,52 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // ตอนเปิดแอป → เช็คว่าเคย login ไว้ไหม
-  useEffect(() => {
-    AsyncStorage.getItem('userId').then(async (id) => {
-      if (id) {
-        const u = await getUserById(parseInt(id));
-        if (u) setUser(u);
-      }
-      setLoading(false);
-    }).catch(() => setLoading(false));
-  }, []);
-
-  const login = async (username, password) => {
-    const u = await dbLogin(username, password);
-    setUser(u);
-    await AsyncStorage.setItem('userId', String(u.id));
-    return u;
+  const loadProfile = async () => {
+    try {
+      const profile = await auth.getMyProfile();
+      setUser(profile);
+    } catch (e) {
+      console.log('Load profile error:', e);
+      setUser(null);
+    }
   };
 
-  const register = async (data) => {
-    const result = await dbRegister(data.username, data.password, data.fullName, data.position, data.department, data.phone);
-    const u = await getUserById(result.id);
-    setUser(u);
-    await AsyncStorage.setItem('userId', String(u.id));
-    return u;
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        loadProfile().finally(() => setLoading(false));
+      } else {
+        setLoading(false);
+      }
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        loadProfile();
+      } else if (event === 'SIGNED_OUT') {
+        setUser(null);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const login = async (email, password) => {
+    await auth.login(email, password);
+    await loadProfile();
+  };
+
+  const register = async (formData) => {
+    await auth.register(formData);
   };
 
   const logout = async () => {
+    await auth.logout();
     setUser(null);
-    await AsyncStorage.removeItem('userId');
   };
 
   const refreshUser = async () => {
-    if (user?.id) {
-      const u = await getUserById(user.id);
-      setUser(u);
-    }
+    await loadProfile();
   };
 
   return (

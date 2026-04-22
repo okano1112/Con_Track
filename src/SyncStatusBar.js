@@ -1,0 +1,73 @@
+// SyncStatusBar.js
+// ============================================================
+// แถบสถานะ sync ด้านบนของแอป
+// (Fix: disabled ให้ถูกต้องตามสถานะ ไม่ hardcode true)
+// ============================================================
+
+import React, { useState, useEffect } from 'react';
+import { Text, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useNetwork } from './useNetwork';
+import { getPendingCount, syncAll } from './syncEngine';
+
+export default function SyncStatusBar() {
+  const { isOnline } = useNetwork();
+  const [pending, setPending] = useState(0);
+  const [syncing, setSyncing] = useState(false);
+
+  useEffect(() => {
+    const update = async () => {
+      try { setPending(await getPendingCount()); }
+      catch (e) { /* silent */ }
+    };
+    update();
+    const id = setInterval(update, 5000);
+    return () => clearInterval(id);
+  }, []);
+
+  const handleSync = async () => {
+    if (!isOnline || syncing) return;
+    setSyncing(true);
+    try {
+      await syncAll();
+      setPending(await getPendingCount());
+    } catch (e) {
+      console.log('Sync error:', e);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  // ซ่อนเมื่อ online + ไม่มีข้อมูลค้าง + ไม่ได้ sync
+  if (isOnline && pending === 0 && !syncing) return null;
+
+  const bgColor = !isOnline ? '#F59E0B' : pending > 0 ? '#3B82F6' : '#10B981';
+  const icon = !isOnline ? 'cloud-offline' : pending > 0 ? 'cloud-upload' : 'cloud-done';
+  const text = !isOnline
+    ? `ออฟไลน์ ${pending > 0 ? `(ข้อมูลค้าง ${pending})` : ''}`
+    : syncing ? 'กำลัง sync...'
+    : pending > 0 ? `มีข้อมูลรอ sync ${pending} รายการ`
+    : 'sync เสร็จแล้ว';
+
+  return (
+    <TouchableOpacity
+      onPress={handleSync}
+      disabled={!isOnline || syncing}
+      activeOpacity={0.7}
+      style={{
+        backgroundColor: bgColor,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 6,
+        paddingHorizontal: 16,
+        gap: 8,
+      }}
+    >
+      {syncing
+        ? <ActivityIndicator size="small" color="#fff" />
+        : <Ionicons name={icon} size={14} color="#fff" />}
+      <Text style={{ color: '#fff', fontSize: 12, fontWeight: '600' }}>{text}</Text>
+    </TouchableOpacity>
+  );
+}

@@ -1,395 +1,919 @@
-// src/db.js
+// db.js
 // ============================================================
-// ฐานข้อมูลระบบก่อสร้าง (Full Offline-Online Sync Version)
-// รองรับทั้งการส่งข้อมูลขึ้น (Push) และดึงข้อมูลลง (Pull) ครบทุกตาราง
+// Database Layer (SQLite) - Offline First
+// ทุกการเขียนจะเข้า sync_queue อัตโนมัติ
+// v6: เพิ่ม project_codes, boq_items, field โครงการใหม่ และแก้บั๊ก Owner/Validation
 // ============================================================
 
 import * as SQLite from 'expo-sqlite';
-import NetInfo from '@react-native-community/netinfo';
-import { supabase } from './supabase';
+import { newUUID, now } from './utils';
 
 let _db = null;
+let _initPromise = null;
 
 export async function getDB() {
   if (_db) return _db;
-  _db = await SQLite.openDatabaseAsync('ots_app.db');
-  await _db.execAsync('PRAGMA journal_mode = WAL;');
-  await _db.execAsync('PRAGMA foreign_keys = ON;');
-  await initDB(_db);
-  return _db;
+  if (_initPromise) return await _initPromise;
+
+  _initPromise = (async () => {
+    _db = await SQLite.openDatabaseAsync('contrack_v6.db');
+    await _db.execAsync('PRAGMA journal_mode = WAL;');
+    await _db.execAsync('PRAGMA foreign_keys = ON;');
+    await initSchema(_db);
+    await runMigrations(_db);
+    return _db;
+  })();
+
+  return await _initPromise;
 }
 
-async function initDB(db) {
-  // สร้างตารางพื้นฐาน
+// ============================================================
+// ด่านตรวจ: ดักจับ/ซ่อมแซมค่าก่อนเข้า SQLite
+// ============================================================
+const cleanParam = (v) => {
+  if (v === undefined || v === null) return null;
+  if (typeof v === 'number') return Number.isNaN(v) ? 0 : v;
+  if (typeof v === 'boolean') return v ? 1 : 0;
+  if (v instanceof Date) return v.toISOString();
+  if (typeof v === 'object') return JSON.stringify(v);
+  return String(v);
+};
+
+const cleanArray = (args) => {
+  if (args.length === 1 && Array.isArray(args[0])) return args[0].map(cleanParam);
+  return args.map(cleanParam);
+};
+
+export async function dbRun(sql, ...args) {
+  const db = await getDB();
+  return await db.runAsync(sql, ...cleanArray(args));
+}
+
+export async function dbGetFirst(sql, ...args) {
+  const db = await getDB();
+  return await db.getFirstAsync(sql, ...cleanArray(args));
+}
+
+export async function dbGetAll(sql, ...args) {
+  const db = await getDB();
+  return await db.getAllAsync(sql, ...cleanArray(args));
+}
+
+// ============================================================
+// SCHEMA
+// ============================================================
+async function initSchema(db) {
   await db.execAsync(`
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TEXT NOT NULL UNIQUE,
-      password TEXT NOT NULL,
-      full_name TEXT NOT NULL,
-      position TEXT DEFAULT '',
-      department TEXT DEFAULT '',
-      phone TEXT DEFAULT '',
-      role TEXT DEFAULT 'member',
-      created_at TEXT DEFAULT (datetime('now','localtime'))
+    CREATE TABLE IF NOT EXISTS profiles (
+      id TEXT PRIMARY KEY, custom_id TEXT UNIQUE NOT NULL, full_name TEXT NOT NULL,
+      phone TEXT DEFAULT '', address TEXT DEFAULT '', avatar_url TEXT DEFAULT '',
+      created_at TEXT, updated_at TEXT, sync_status TEXT DEFAULT 'synced'
     );
 
     CREATE TABLE IF NOT EXISTS projects (
-      id INTEGER PRIMARY KEY,
-      name TEXT NOT NULL,
-      description TEXT DEFAULT '',
-      location TEXT DEFAULT '',
+      id TEXT PRIMARY KEY,
+      project_code TEXT DEFAULT '',
+      name TEXT NOT NULL, description TEXT DEFAULT '',
+      project_type TEXT DEFAULT 'building',
+      location TEXT DEFAULT '', latitude REAL, longitude REAL,
       budget REAL DEFAULT 0,
-      start_date TEXT DEFAULT '',
-      end_date TEXT DEFAULT '',
+      contract_no TEXT DEFAULT '',
+      contract_value REAL DEFAULT 0,
+      advance_percent REAL DEFAULT 0,
+      retention_percent REAL DEFAULT 5,
+      scope_of_work TEXT DEFAULT '',
+      contract_date TEXT,
+      ntp_date TEXT,
+      duration_days INTEGER DEFAULT 0,
+      start_date TEXT, end_date TEXT,
+      client_name TEXT DEFAULT '',
+      address TEXT DEFAULT '',
+      pm_id TEXT,
       progress INTEGER DEFAULT 0,
-      status TEXT DEFAULT 'planning',
-      manager_id INTEGER,
-      created_at TEXT DEFAULT (datetime('now','localtime'))
+      status TEXT DEFAULT 'planning', owner_id TEXT,
+      created_at TEXT, updated_at TEXT, sync_status TEXT DEFAULT 'pending'
+    );
+
+    CREATE TABLE IF NOT EXISTS project_codes (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      code TEXT UNIQUE NOT NULL,
+      created_by TEXT,
+      role TEXT DEFAULT 'member',
+      expires_at TEXT,
+      max_uses INTEGER DEFAULT 0,
+      uses_count INTEGER DEFAULT 0,
+      is_active INTEGER DEFAULT 1,
+      created_at TEXT, updated_at TEXT, sync_status TEXT DEFAULT 'pending'
+    );
+
+    CREATE TABLE IF NOT EXISTS project_members (
+      id TEXT PRIMARY KEY, project_id TEXT NOT NULL, user_id TEXT NOT NULL,
+      role TEXT NOT NULL, permissions TEXT DEFAULT '{}', company_name TEXT DEFAULT '',
+      is_external INTEGER DEFAULT 0, joined_at TEXT, updated_at TEXT,
+      sync_status TEXT DEFAULT 'pending'
+    );
+
+    CREATE TABLE IF NOT EXISTS boq_items (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      item_no TEXT DEFAULT '',
+      category TEXT DEFAULT '',
+      item_name TEXT NOT NULL,
+      work_type TEXT DEFAULT '',
+      unit TEXT DEFAULT '',
+      quantity REAL DEFAULT 0,
+      unit_price REAL DEFAULT 0,
+      labor_rate REAL DEFAULT 0,
+      material_rate REAL DEFAULT 0,
+      total_price REAL DEFAULT 0,
+      note TEXT DEFAULT '',
+      sort_order INTEGER DEFAULT 0,
+      created_at TEXT, updated_at TEXT, sync_status TEXT DEFAULT 'pending'
     );
 
     CREATE TABLE IF NOT EXISTS tasks (
-      id INTEGER PRIMARY KEY,
-      project_id INTEGER NOT NULL,
-      assigned_to INTEGER,
-      title TEXT NOT NULL,
-      description TEXT DEFAULT '',
-      priority TEXT DEFAULT 'medium',
-      status TEXT DEFAULT 'todo',
-      due_date TEXT DEFAULT '',
-      created_at TEXT DEFAULT (datetime('now','localtime')),
-      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+      id TEXT PRIMARY KEY, project_id TEXT NOT NULL, assigned_to TEXT,
+      title TEXT NOT NULL, description TEXT DEFAULT '',
+      priority TEXT DEFAULT 'medium', status TEXT DEFAULT 'todo', due_date TEXT,
+      created_at TEXT, updated_at TEXT, sync_status TEXT DEFAULT 'pending'
+    );
+
+    CREATE TABLE IF NOT EXISTS gantt_tasks (
+      id TEXT PRIMARY KEY, project_id TEXT NOT NULL, parent_id TEXT,
+      name TEXT NOT NULL, start_date TEXT NOT NULL, end_date TEXT NOT NULL,
+      duration_days INTEGER DEFAULT 1, progress INTEGER DEFAULT 0,
+      depends_on TEXT, is_milestone INTEGER DEFAULT 0, assigned_to TEXT,
+      sort_order INTEGER DEFAULT 0, color TEXT DEFAULT '#3B82F6', notes TEXT DEFAULT '',
+      created_at TEXT, updated_at TEXT, sync_status TEXT DEFAULT 'pending'
     );
 
     CREATE TABLE IF NOT EXISTS documents (
-      id INTEGER PRIMARY KEY,
-      project_id INTEGER NOT NULL,
-      uploaded_by INTEGER,
-      name TEXT NOT NULL,
-      category TEXT DEFAULT 'other',
-      notes TEXT DEFAULT '',
-      created_at TEXT DEFAULT (datetime('now','localtime')),
-      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS progress_reports (
-      id INTEGER PRIMARY KEY,
-      project_id INTEGER NOT NULL,
-      reported_by INTEGER,
-      title TEXT NOT NULL,
-      content TEXT DEFAULT '',
-      progress_percent INTEGER DEFAULT 0,
-      weather TEXT DEFAULT '',
-      workers_count INTEGER DEFAULT 0,
-      issues TEXT DEFAULT '',
-      report_date TEXT DEFAULT (date('now','localtime')),
-      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+      id TEXT PRIMARY KEY, project_id TEXT NOT NULL, uploaded_by TEXT,
+      name TEXT NOT NULL, category TEXT DEFAULT 'other',
+      file_url TEXT DEFAULT '', notes TEXT DEFAULT '',
+      created_at TEXT, updated_at TEXT, sync_status TEXT DEFAULT 'pending'
     );
 
     CREATE TABLE IF NOT EXISTS workers (
-      id INTEGER PRIMARY KEY,
-      name TEXT NOT NULL,
-      role TEXT DEFAULT '',
-      nationality TEXT DEFAULT 'ไทย',
-      gender TEXT DEFAULT 'ชาย',
-      age INTEGER DEFAULT 0,
-      daily_wage REAL DEFAULT 0,
-      experience_years INTEGER DEFAULT 0,
-      employment_status TEXT DEFAULT 'พนักงานรายวัน',
-      phone TEXT DEFAULT '',
-      avatar_uri TEXT DEFAULT '',
-      created_at TEXT DEFAULT (datetime('now','localtime'))
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, role TEXT DEFAULT '',
+      nationality TEXT DEFAULT 'ไทย', gender TEXT DEFAULT 'ชาย', age INTEGER DEFAULT 0,
+      daily_wage REAL DEFAULT 0, experience_years INTEGER DEFAULT 0,
+      employment_status TEXT DEFAULT 'พนักงานรายวัน', phone TEXT DEFAULT '',
+      avatar_url TEXT DEFAULT '',
+      created_at TEXT, updated_at TEXT, sync_status TEXT DEFAULT 'pending'
     );
 
     CREATE TABLE IF NOT EXISTS worker_records (
-      id INTEGER PRIMARY KEY,
-      worker_id INTEGER NOT NULL,
-      work_type TEXT DEFAULT '',
-      date TEXT DEFAULT '',
-      output REAL DEFAULT 0,
-      quality REAL DEFAULT 0,
-      ot_hours REAL DEFAULT 0,
-      ot_amount REAL DEFAULT 0,
-      FOREIGN KEY (worker_id) REFERENCES workers(id) ON DELETE CASCADE
+      id TEXT PRIMARY KEY, worker_id TEXT NOT NULL, work_type TEXT DEFAULT '',
+      date TEXT, output REAL DEFAULT 0, quality REAL DEFAULT 0,
+      ot_hours REAL DEFAULT 0, ot_amount REAL DEFAULT 0,
+      created_at TEXT, updated_at TEXT, sync_status TEXT DEFAULT 'pending'
     );
 
-    CREATE TABLE IF NOT EXISTS offline_queue (
+    CREATE TABLE IF NOT EXISTS diary_reports (
+      id TEXT PRIMARY KEY, project_id TEXT NOT NULL, reported_by TEXT,
+      report_date TEXT NOT NULL, work_summary TEXT DEFAULT '',
+      workers_count INTEGER DEFAULT 0, weather_data TEXT,
+      obstacles TEXT DEFAULT '', photos TEXT DEFAULT '[]',
+      progress_percent INTEGER DEFAULT 0,
+      created_at TEXT, updated_at TEXT, sync_status TEXT DEFAULT 'pending'
+    );
+
+    CREATE TABLE IF NOT EXISTS weather_logs (
+      id TEXT PRIMARY KEY, project_id TEXT NOT NULL, diary_report_id TEXT,
+      confirmed_by TEXT, event_time TEXT NOT NULL, latitude REAL, longitude REAL,
+      rain_mm REAL, wind_speed REAL, temperature REAL, weather_code INTEGER,
+      api_source TEXT DEFAULT 'Open-Meteo', raw_data TEXT,
+      action_taken TEXT DEFAULT '', note TEXT DEFAULT '',
+      created_at TEXT, sync_status TEXT DEFAULT 'pending'
+    );
+
+    CREATE TABLE IF NOT EXISTS sync_queue (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      table_name TEXT NOT NULL,
-      action TEXT NOT NULL,
-      payload TEXT NOT NULL
+      table_name TEXT NOT NULL, action TEXT NOT NULL,
+      row_id TEXT NOT NULL, payload TEXT NOT NULL,
+      created_at TEXT NOT NULL, retry_count INTEGER DEFAULT 0,
+      last_error TEXT DEFAULT ''
     );
+
+    CREATE INDEX IF NOT EXISTS idx_sync_queue_table ON sync_queue(table_name, row_id);
+    CREATE INDEX IF NOT EXISTS idx_projects_updated ON projects(updated_at);
+    CREATE INDEX IF NOT EXISTS idx_projects_code ON projects(project_code);
+    CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id);
+    CREATE INDEX IF NOT EXISTS idx_gantt_project ON gantt_tasks(project_id);
+    CREATE INDEX IF NOT EXISTS idx_boq_project ON boq_items(project_id);
+    CREATE INDEX IF NOT EXISTS idx_code_lookup ON project_codes(code);
   `);
+}
 
-  // Auto-Migration สำหรับคอลัมน์ใหม่ๆ
-  const migrations = [
-    "ALTER TABLE workers ADD COLUMN nationality TEXT DEFAULT 'ไทย';",
-    "ALTER TABLE workers ADD COLUMN gender TEXT DEFAULT 'ชาย';",
-    "ALTER TABLE workers ADD COLUMN age INTEGER DEFAULT 0;",
-    "ALTER TABLE workers ADD COLUMN daily_wage REAL DEFAULT 0;",
-    "ALTER TABLE workers ADD COLUMN experience_years INTEGER DEFAULT 0;",
-    "ALTER TABLE workers ADD COLUMN employment_status TEXT DEFAULT 'พนักงานรายวัน';",
-    "ALTER TABLE worker_records ADD COLUMN ot_hours REAL DEFAULT 0;",
-    "ALTER TABLE worker_records ADD COLUMN ot_amount REAL DEFAULT 0;"
+// Migration: เพิ่ม column ที่หายไปในฐานข้อมูลเก่า (ถ้ามี)
+async function runMigrations(db) {
+  const alters = [
+    `ALTER TABLE projects ADD COLUMN project_code TEXT DEFAULT ''`,
+    `ALTER TABLE projects ADD COLUMN project_type TEXT DEFAULT 'building'`,
+    `ALTER TABLE projects ADD COLUMN contract_no TEXT DEFAULT ''`,
+    `ALTER TABLE projects ADD COLUMN contract_value REAL DEFAULT 0`,
+    `ALTER TABLE projects ADD COLUMN advance_percent REAL DEFAULT 0`,
+    `ALTER TABLE projects ADD COLUMN retention_percent REAL DEFAULT 5`,
+    `ALTER TABLE projects ADD COLUMN scope_of_work TEXT DEFAULT ''`,
+    `ALTER TABLE projects ADD COLUMN contract_date TEXT`,
+    `ALTER TABLE projects ADD COLUMN ntp_date TEXT`,
+    `ALTER TABLE projects ADD COLUMN duration_days INTEGER DEFAULT 0`,
+    `ALTER TABLE projects ADD COLUMN client_name TEXT DEFAULT ''`,
+    `ALTER TABLE projects ADD COLUMN address TEXT DEFAULT ''`,
+    `ALTER TABLE projects ADD COLUMN pm_id TEXT`,
   ];
-  for (let sql of migrations) {
-    try { await db.execAsync(sql); } catch (e) {}
+  for (const sql of alters) {
+    try { await db.execAsync(sql); } catch (e) { /* column exists แล้ว - ข้าม */ }
   }
 }
 
 // ============================================================
-// 🌟 ระบบ SYNC ENGINE (PUSH & PULL) 🌟
+// sync helpers
 // ============================================================
-let isSyncing = false;
-
-// 1. PUSH: ส่งข้อมูลจากเครื่องขึ้น Cloud
-export async function syncToCloud() {
-  if (isSyncing) return;
-  const net = await NetInfo.fetch();
-  if (!net.isConnected) return;
-
-  isSyncing = true;
+async function enqueue(tableName, action, rowId, payload) {
+  await dbRun(
+    `INSERT INTO sync_queue (table_name, action, row_id, payload, created_at) VALUES (?, ?, ?, ?, ?)`,
+    tableName, action, rowId, JSON.stringify(payload), now()
+  );
+  // Trigger sync อัตโนมัติ (debounced)
   try {
-    const db = await getDB();
-    const queue = await db.getAllAsync('SELECT * FROM offline_queue ORDER BY id ASC');
-    
-    for (let item of queue) {
-      const payload = JSON.parse(item.payload);
-      let error = null;
-
-      if (item.action === 'INSERT') {
-        const { error: err } = await supabase.from(item.table_name).upsert(payload);
-        error = err;
-      } else if (item.action === 'UPDATE') {
-        const { id, ...updateData } = payload;
-        const { error: err } = await supabase.from(item.table_name).update(updateData).eq('id', id);
-        error = err;
-      } else if (item.action === 'DELETE') {
-        const { error: err } = await supabase.from(item.table_name).delete().eq('id', payload.id);
-        error = err;
-      }
-
-      if (!error || error.code === '23505') {
-        await db.runAsync('DELETE FROM offline_queue WHERE id=?', [item.id]);
-      } else {
-        console.log(`[Sync Error] ${item.table_name}:`, error);
-        break; 
-      }
-    }
-  } catch (e) {
-    console.log('[Sync Exception]', e);
-  } finally {
-    isSyncing = false;
-  }
+    const { triggerSync } = require('./syncEngine');
+    triggerSync();
+  } catch (e) { /* syncEngine ยังไม่ได้โหลด — ข้าม */ }
 }
 
-// 2. PULL: ดึงข้อมูลจาก Cloud ลงเครื่อง (สำหรับทุกตาราง)
-export async function pullAllDataFromServer() {
-  const net = await NetInfo.fetch();
-  if (!net.isConnected) return;
+async function insertRow(tableName, data) {
+  const row = {
+    id: data.id || newUUID(),
+    created_at: now(),
+    updated_at: now(),
+    sync_status: 'pending',
+    ...data,
+  };
 
-  const db = await getDB();
-  const tables = ['users', 'projects', 'tasks', 'documents', 'progress_reports', 'workers', 'worker_records'];
+  const keys = Object.keys(row);
+  const placeholders = keys.map(() => '?').join(',');
+  const values = keys.map(k => row[k]);
 
-  for (const table of tables) {
+  await dbRun(`INSERT INTO ${tableName} (${keys.join(',')}) VALUES (${placeholders})`, values);
+
+  const { sync_status, ...cloudPayload } = row;
+  await enqueue(tableName, 'insert', row.id, cloudPayload);
+  return row;
+}
+
+async function updateRow(tableName, id, data) {
+  const updates = { ...data, updated_at: now(), sync_status: 'pending' };
+
+  const keys = Object.keys(updates);
+  const setClause = keys.map(k => `${k}=?`).join(',');
+  const values = [...keys.map(k => updates[k]), id];
+
+  await dbRun(`UPDATE ${tableName} SET ${setClause} WHERE id=?`, values);
+
+  const { sync_status, ...cloudPayload } = updates;
+  await enqueue(tableName, 'update', id, { id, ...cloudPayload });
+}
+
+async function deleteRow(tableName, id) {
+  await dbRun(`DELETE FROM ${tableName} WHERE id=?`, id);
+  await enqueue(tableName, 'delete', id, { id });
+}
+
+export { insertRow, updateRow, deleteRow, enqueue };
+
+// ============================================================
+// PROJECT CODE GENERATOR
+// ============================================================
+function generateProjectCode() {
+  const nowTime = new Date();
+  const yy = String(nowTime.getFullYear()).slice(-2);
+  const mm = String(nowTime.getMonth() + 1).padStart(2, '0');
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let random = '';
+  for (let i = 0; i < 3; i++) {
+    random += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return `CT-${yy}${mm}-${random}`;
+}
+
+async function generateUniqueProjectCode() {
+  for (let i = 0; i < 10; i++) {
+    const code = generateProjectCode();
+    const exists = await dbGetFirst('SELECT id FROM projects WHERE project_code=?', code);
+    if (!exists) return code;
+  }
+  return `CT-${Date.now().toString(36).toUpperCase()}`;
+}
+
+function generateInviteCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let code = '';
+  for (let i = 0; i < 6; i++) {
+    code += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return code;
+}
+
+export async function createInviteCode({ projectId, createdBy, role = 'member', expiresInDays = 30 }) {
+  let code;
+  for (let i = 0; i < 10; i++) {
+    const c = generateInviteCode();
+    const exists = await dbGetFirst('SELECT id FROM project_codes WHERE code=?', c);
+    if (!exists) { code = c; break; }
+  }
+  if (!code) code = `INV${Date.now().toString(36).toUpperCase().slice(-6)}`;
+
+  const expiresAt = new Date(Date.now() + expiresInDays * 86400000).toISOString();
+
+  return await insertRow('project_codes', {
+    project_id: projectId,
+    code,
+    created_by: createdBy || null,
+    role,
+    expires_at: expiresAt,
+    max_uses: 0,
+    uses_count: 0,
+    is_active: 1,
+  });
+}
+
+export async function findProjectByCode(code) {
+  const trimmed = (code || '').trim().toUpperCase();
+  if (!trimmed) return null;
+
+  // ✅ STEP 1: ค้นใน local ก่อน (offline-first)
+  let invite = await dbGetFirst(
+    'SELECT * FROM project_codes WHERE code=? AND is_active=1',
+    trimmed
+  );
+
+  // ✅ STEP 2: ถ้าไม่เจอ ให้ยิงไป Supabase หา
+  if (!invite) {
     try {
-      const { data, error } = await supabase.from(table).select('*');
-      if (error) throw error;
-
-      if (data && data.length > 0) {
-        for (const row of data) {
-          const columns = Object.keys(row).join(',');
-          const placeholders = Object.keys(row).map(() => '?').join(',');
-          const values = Object.values(row);
-          
-          // ใช้ INSERT OR REPLACE เพื่ออัปเดตข้อมูลให้ตรงกับ Server
-          await db.runAsync(
-            `INSERT OR REPLACE INTO ${table} (${columns}) VALUES (${placeholders})`,
-            values
-          );
-        }
+      const { supabase } = require('./supabaseClient');
+      const { data: remoteInvite, error } = await supabase
+        .from('project_codes')
+        .select('*')
+        .eq('code', trimmed)
+        .eq('is_active', true)
+        .maybeSingle();
+      
+      if (!error && remoteInvite) {
+        invite = remoteInvite;
+        // cache ลง local เผื่อใช้ offline ครั้งต่อไป
+        await upsertInviteLocal(remoteInvite);
       }
     } catch (e) {
-      console.log(`[Pull Error] ${table}:`, e);
+      console.log('[findProjectByCode] remote invite search failed:', e);
     }
   }
-}
 
-async function addToQueue(db, tableName, action, payload) {
-  await db.runAsync(
-    'INSERT INTO offline_queue (table_name, action, payload) VALUES (?, ?, ?)',
-    [tableName, action, JSON.stringify(payload)]
-  );
-  syncToCloud();
-}
+  // ถ้าเจอ invite — เช็คหมดอายุและโหลด project
+  if (invite) {
+    if (invite.expires_at && new Date(invite.expires_at) < new Date()) {
+      return { error: 'รหัสนี้หมดอายุแล้ว' };
+    }
+    if (invite.max_uses > 0 && invite.uses_count >= invite.max_uses) {
+      return { error: 'รหัสนี้ถูกใช้ครบจำนวนแล้ว' };
+    }
 
-// ============================================================
-// 🌟 AUTH & LOGIN (ปรับปรุงให้ดึงข้อมูลเพื่อนได้) 🌟
-// ============================================================
-export async function login(username, password) {
-  const db = await getDB();
-  const lowerUsername = username.toLowerCase();
-
-  // ลองหาในเครื่องก่อน
-  let user = await db.getFirstAsync('SELECT * FROM users WHERE username=? AND password=?', [lowerUsername, password]);
-
-  // ถ้าไม่เจอ ให้ดึงจาก Supabase
-  if (!user) {
-    const net = await NetInfo.fetch();
-    if (net.isConnected) {
-      const { data, error } = await supabase.from('users').select('*').eq('username', lowerUsername).eq('password', password).single();
-      if (data) {
-        user = data;
-        await db.runAsync(
-          'INSERT OR REPLACE INTO users (id,username,password,full_name,position,department,phone,role) VALUES (?,?,?,?,?,?,?,?)',
-          [user.id, user.username, user.password, user.full_name, user.position, user.department, user.phone, user.role]
-        );
+    // โหลด project จาก local ก่อน
+    let project = await dbGetFirst('SELECT * FROM projects WHERE id=?', invite.project_id);
+    
+    // ถ้า local ไม่มี → ดึงจาก Supabase
+    if (!project) {
+      try {
+        const { supabase } = require('./supabaseClient');
+        const { data: remoteProject } = await supabase
+          .from('projects')
+          .select('*')
+          .eq('id', invite.project_id)
+          .maybeSingle();
+        
+        if (remoteProject) {
+          await upsertProjectLocal(remoteProject);
+          project = remoteProject;
+        }
+      } catch (e) {
+        console.log('[findProjectByCode] remote project fetch failed:', e);
       }
     }
+    
+    if (project) return { project, invite };
+    return { error: 'ไม่พบข้อมูลโครงการ (อาจถูกลบ)' };
   }
 
-  if (!user) throw new Error('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง');
+  // ✅ STEP 3: ลองหาจาก project_code โดยตรง (local + remote)
+  let project = await dbGetFirst('SELECT * FROM projects WHERE project_code=?', trimmed);
   
-  // เมื่อล็อกอินผ่าน ให้ดึงข้อมูลโปรเจกต์และงานทั้งหมดของเพื่อนลงเครื่องทันที
-  pullAllDataFromServer(); 
-  return user;
+  if (!project) {
+    try {
+      const { supabase } = require('./supabaseClient');
+      const { data: remoteProject } = await supabase
+        .from('projects')
+        .select('*')
+        .eq('project_code', trimmed)
+        .maybeSingle();
+      
+      if (remoteProject) {
+        await upsertProjectLocal(remoteProject);
+        project = remoteProject;
+      }
+    } catch (e) {
+      console.log('[findProjectByCode] remote project_code search failed:', e);
+    }
+  }
+  
+  if (project) return { project, invite: null };
+  return { error: 'ไม่พบโครงการที่ใช้รหัสนี้' };
 }
 
-export async function register(username, password, fullName, position, department, phone) {
-  const db = await getDB();
-  const exists = await db.getFirstAsync('SELECT id FROM users WHERE username = ?', [username.toLowerCase()]);
-  if (exists) throw new Error('ชื่อผู้ใช้นี้มีอยู่แล้ว');
+// Helper: cache ข้อมูลจาก cloud ลง local
+async function upsertProjectLocal(row) {
+  // clean boolean/object
+  const cleaned = { ...row, sync_status: 'synced' };
+  for (const k of Object.keys(cleaned)) {
+    if (typeof cleaned[k] === 'boolean') cleaned[k] = cleaned[k] ? 1 : 0;
+    if (cleaned[k] && typeof cleaned[k] === 'object') cleaned[k] = JSON.stringify(cleaned[k]);
+  }
   
-  const r = await db.runAsync(
-    'INSERT INTO users (username,password,full_name,position,department,phone) VALUES (?,?,?,?,?,?)',
-    [username.toLowerCase(), password, fullName, position || '', department || '', phone || '']
+  const keys = Object.keys(cleaned);
+  const placeholders = keys.map(() => '?').join(',');
+  const updates = keys.map(k => `${k}=excluded.${k}`).join(',');
+  const values = keys.map(k => cleaned[k]);
+  
+  await dbRun(
+    `INSERT INTO projects (${keys.join(',')}) VALUES (${placeholders}) 
+     ON CONFLICT(id) DO UPDATE SET ${updates}`,
+    values
+  );
+}
+
+async function upsertInviteLocal(row) {
+  const cleaned = { ...row, sync_status: 'synced' };
+  for (const k of Object.keys(cleaned)) {
+    if (typeof cleaned[k] === 'boolean') cleaned[k] = cleaned[k] ? 1 : 0;
+  }
+  
+  const keys = Object.keys(cleaned);
+  const placeholders = keys.map(() => '?').join(',');
+  const updates = keys.map(k => `${k}=excluded.${k}`).join(',');
+  const values = keys.map(k => cleaned[k]);
+  
+  await dbRun(
+    `INSERT INTO project_codes (${keys.join(',')}) VALUES (${placeholders}) 
+     ON CONFLICT(id) DO UPDATE SET ${updates}`,
+    values
+  );
+}
+export async function useInviteCode(inviteId, userId) {
+  if (!userId) throw new Error('ต้องล็อกอินก่อน');
+  
+  const invite = await dbGetFirst('SELECT * FROM project_codes WHERE id=?', inviteId);
+  if (!invite) throw new Error('ไม่พบรหัสเชิญ');
+
+  // เช็คว่าเป็นสมาชิกอยู่แล้วหรือยัง
+  const existing = await dbGetFirst(
+    'SELECT id FROM project_members WHERE project_id=? AND user_id=?',
+    invite.project_id, userId
   );
   
-  await addToQueue(db, 'users', 'INSERT', { 
-    id: r.lastInsertRowId, username: username.toLowerCase(), password, 
-    full_name: fullName, position: position || '', department: department || '', phone: phone || '' 
+  if (!existing) {
+    await insertRow('project_members', {
+      project_id: invite.project_id,
+      user_id: userId,
+      role: invite.role || 'member',
+      permissions: '{}',
+    });
+  }
+
+  // อัปเดต uses_count
+  await updateRow('project_codes', inviteId, {
+    uses_count: (invite.uses_count || 0) + 1,
   });
-  return { id: r.lastInsertRowId, username, fullName };
+
+  // ✅ Force sync ทันที (ไม่รอ debounce) เพื่อให้ push ขึ้น cloud
+  try {
+    const { push, pull } = require('./syncEngine');
+    await push();  // push การ insert project_members ขึ้นไป
+    await pull();  // pull projects ลงมาเผื่อยังไม่มี
+  } catch (e) {
+    console.log('[useInviteCode] immediate sync failed:', e);
+  }
+
+  return invite.project_id;
 }
 
 // ============================================================
-// 🌟 PROJECTS & TASKS (เพิ่มระบบดึงข้อมูล) 🌟
+// PROJECTS
 // ============================================================
-export async function createProject(name, desc, location, budget, startDate, endDate, status, managerId) {
-  const db = await getDB();
-  const r = await db.runAsync(
-    'INSERT INTO projects (name,description,location,budget,start_date,end_date,status,manager_id) VALUES (?,?,?,?,?,?,?,?)',
-    [name, desc || '', location || '', budget || 0, startDate || '', endDate || '', status || 'planning', managerId || null]
-  );
-  await addToQueue(db, 'projects', 'INSERT', { id: r.lastInsertRowId, name, description: desc || '', location: location || '', budget: budget || 0, start_date: startDate || '', end_date: endDate || '', status: status || 'planning', manager_id: managerId || null });
-  return r.lastInsertRowId;
+
+// เช็กรหัสโครงการซ้ำ
+export async function checkProjectCodeExists(code, excludeId = null) {
+  if (!code || code.trim().length === 0) return false;
+  const trimmed = code.trim();
+
+  let rows;
+  if (excludeId) {
+    rows = await dbGetAll(
+      'SELECT id FROM projects WHERE project_code = ? AND id != ? LIMIT 1',
+      trimmed, excludeId
+    );
+  } else {
+    rows = await dbGetAll(
+      'SELECT id FROM projects WHERE project_code = ? LIMIT 1',
+      trimmed
+    );
+  }
+  return rows && rows.length > 0;
+}
+
+// สร้างโครงการใหม่ (อัปเดต v6 + ดึง Owner เข้าโปรเจกต์อัตโนมัติ)
+export async function createProject(data) {
+  const code = data.projectCode || data.project_code || await generateUniqueProjectCode();
+  const id = data.id || newUUID();
+  const owner_id = data.ownerId || data.owner_id;
+
+  const row = await insertRow('projects', {
+    id: id,
+    project_code: code,
+    name: data.name,
+    description: data.description || '',
+    project_type: data.projectType || data.project_type || 'building',
+    location: data.location || '',
+    latitude: data.latitude || null,
+    longitude: data.longitude || null,
+    budget: data.budget || 0,
+    contract_no: data.contractNo || data.contract_no || '',
+    contract_value: data.contractValue || data.contract_value || 0,
+    advance_percent: data.advancePercent || data.advance_percent || 0,
+    retention_percent: data.retentionPercent || data.retention_percent || 5,
+    scope_of_work: data.scopeOfWork || data.scope_of_work || '',
+    contract_date: data.contractDate || data.contract_date || null,
+    ntp_date: data.ntpDate || data.ntp_date || null,
+    duration_days: data.durationDays || data.duration_days || 0,
+    start_date: data.startDate || data.start_date || null,
+    end_date: data.endDate || data.end_date || null,
+    client_name: data.clientName || data.client_name || '',
+    address: data.address || '',
+    pm_id: data.pmId || null,
+    status: data.status || 'planning',
+    progress: 0,
+    owner_id: owner_id,
+  });
+
+  // กำหนดสิทธิ์ Owner ให้ผู้สร้างอัตโนมัติ
+  if (owner_id) {
+    await insertRow('project_members', {
+      project_id: id,
+      user_id: owner_id,
+      role: 'owner',
+      permissions: '{}',
+    });
+  }
+
+  return row;
+}
+
+export async function updateProject(id, data) {
+  return await updateRow('projects', id, data);
+}
+
+export async function deleteProject(id) {
+  return await deleteRow('projects', id);
 }
 
 export async function getAllProjects(statusFilter) {
-  const db = await getDB();
-  // พยายามดึงข้อมูลใหม่จาก Server ก่อนแสดงผล
-  await pullAllDataFromServer(); 
-
-  let q = `SELECT p.*, u.full_name as manager_name,
-    (SELECT COUNT(*) FROM tasks WHERE project_id=p.id) as task_count,
-    (SELECT COUNT(*) FROM tasks WHERE project_id=p.id AND status='done') as done_count,
-    (SELECT COUNT(*) FROM documents WHERE project_id=p.id) as doc_count
-    FROM projects p LEFT JOIN users u ON p.manager_id=u.id`;
-  if (statusFilter && statusFilter !== 'all') q += ` WHERE p.status='${statusFilter}'`;
-  q += ' ORDER BY p.created_at DESC';
-  
-  return await db.getAllAsync(q);
-}
-
-// ============================================================
-// WORKERS & RECORDS
-// ============================================================
-export async function insertWorker({ name, role, nationality, gender, age, dailyWage, experienceYears, employmentStatus, phone, avatarUri }) {
-  const db = await getDB();
-  const r = await db.runAsync(
-    'INSERT INTO workers (name,role,nationality,gender,age,daily_wage,experience_years,employment_status,phone,avatar_uri) VALUES (?,?,?,?,?,?,?,?,?,?)',
-    [name, role || '', nationality || 'ไทย', gender || 'ชาย', age || 0, dailyWage || 0, experienceYears || 0, employmentStatus || 'พนักงานรายวัน', phone || '', avatarUri || '']
-  );
-  await addToQueue(db, 'workers', 'INSERT', { id: r.lastInsertRowId, name, role, nationality, gender, age, daily_wage: dailyWage, experience_years: experienceYears, employment_status: employmentStatus, phone, avatar_uri: avatarUri });
-  return r.lastInsertRowId;
-}
-
-export async function insertWorkerRecord(workerId, workType, date, output, quality, otHours, otAmount) {
-  const db = await getDB();
-  const r = await db.runAsync(
-    'INSERT INTO worker_records (worker_id,work_type,date,output,quality,ot_hours,ot_amount) VALUES (?,?,?,?,?,?,?)',
-    [workerId, workType, date, output, quality, otHours || 0, otAmount || 0]
-  );
-  await addToQueue(db, 'worker_records', 'INSERT', { id: r.lastInsertRowId, worker_id: workerId, work_type: workType, date, output, quality, ot_hours: otHours, ot_amount: otAmount });
-  return r;
-}
-
-// โค้ดดั้งเดิมส่วนที่เหลือ (คงไว้ครบถ้วน)
-export async function getUserById(id) {
-  const db = await getDB();
-  return await db.getFirstAsync('SELECT * FROM users WHERE id=?', [id]);
+  let sql = `
+    SELECT p.*,
+      (SELECT COUNT(*) FROM tasks WHERE project_id=p.id) AS task_count,
+      (SELECT COUNT(*) FROM tasks WHERE project_id=p.id AND status='done') AS done_count,
+      (SELECT COUNT(*) FROM documents WHERE project_id=p.id) AS doc_count,
+      (SELECT COUNT(*) FROM boq_items WHERE project_id=p.id) AS boq_count
+    FROM projects p
+  `;
+  const params = [];
+  if (statusFilter && statusFilter !== 'all') {
+    sql += ' WHERE p.status=?';
+    params.push(statusFilter);
+  }
+  sql += ' ORDER BY p.created_at DESC';
+  return await dbGetAll(sql, params);
 }
 
 export async function getProjectById(id) {
-  const db = await getDB();
-  const project = await db.getFirstAsync('SELECT p.*,u.full_name as manager_name FROM projects p LEFT JOIN users u ON p.manager_id=u.id WHERE p.id=?', [id]);
-  if (!project) throw new Error('ไม่พบโครงการ');
-  const tasks = await db.getAllAsync('SELECT t.*,u.full_name as assignee_name FROM tasks t LEFT JOIN users u ON t.assigned_to=u.id WHERE t.project_id=? ORDER BY t.created_at DESC', [id]);
-  const documents = await db.getAllAsync('SELECT * FROM documents WHERE project_id=? ORDER BY created_at DESC', [id]);
-  return { ...project, tasks, documents };
+  const project = await dbGetFirst('SELECT * FROM projects WHERE id=?', id);
+  if (!project) return null;
+
+  const tasks = await dbGetAll('SELECT * FROM tasks WHERE project_id=? ORDER BY created_at DESC', id);
+  const documents = await dbGetAll('SELECT * FROM documents WHERE project_id=? ORDER BY created_at DESC', id);
+  const boqItems = await dbGetAll('SELECT * FROM boq_items WHERE project_id=? ORDER BY sort_order ASC, created_at ASC', id);
+  return { ...project, tasks, documents, boqItems };
 }
 
-export async function createTask(projectId, assignedTo, title, desc, priority, status, dueDate) {
-  const db = await getDB();
-  const r = await db.runAsync(
-    'INSERT INTO tasks (project_id,assigned_to,title,description,priority,status,due_date) VALUES (?,?,?,?,?,?,?)',
-    [projectId, assignedTo || null, title, desc || '', priority || 'medium', status || 'todo', dueDate || '']
+// ============================================================
+// BOQ ITEMS
+// ============================================================
+export async function createBOQItem(data) {
+  const qty = parseFloat(data.quantity) || 0;
+  const unitPrice = parseFloat(data.unitPrice) || 0;
+  return await insertRow('boq_items', {
+    project_id: data.projectId,
+    item_no: data.itemNo || '',
+    category: data.category || '',
+    item_name: data.itemName,
+    work_type: data.workType || '',
+    unit: data.unit || '',
+    quantity: qty,
+    unit_price: unitPrice,
+    labor_rate: parseFloat(data.laborRate) || 0,
+    material_rate: parseFloat(data.materialRate) || 0,
+    total_price: qty * unitPrice,
+    note: data.note || '',
+    sort_order: data.sortOrder || 0,
+  });
+}
+
+export async function updateBOQItem(id, data) {
+  const updates = { ...data };
+  if (updates.quantity !== undefined || updates.unit_price !== undefined) {
+    const item = await dbGetFirst('SELECT * FROM boq_items WHERE id=?', id);
+    const qty = updates.quantity !== undefined ? parseFloat(updates.quantity) : item.quantity;
+    const up = updates.unit_price !== undefined ? parseFloat(updates.unit_price) : item.unit_price;
+    updates.total_price = qty * up;
+  }
+  return await updateRow('boq_items', id, updates);
+}
+
+export async function deleteBOQItem(id) {
+  return await deleteRow('boq_items', id);
+}
+
+export async function getBOQItems(projectId) {
+  return await dbGetAll(
+    'SELECT * FROM boq_items WHERE project_id=? ORDER BY sort_order ASC, created_at ASC',
+    projectId
   );
-  await addToQueue(db, 'tasks', 'INSERT', { id: r.lastInsertRowId, project_id: projectId, assigned_to: assignedTo, title, description: desc, priority, status, due_date: dueDate });
-  return r;
 }
 
-export async function toggleTask(taskId) {
-  const db = await getDB();
-  const task = await db.getFirstAsync('SELECT status FROM tasks WHERE id=?', [taskId]);
+export async function getGanttTasks(projectId) {
+  return await dbGetAll(
+    'SELECT * FROM gantt_tasks WHERE project_id=? ORDER BY sort_order ASC, start_date ASC',
+    projectId
+  );
+}
+
+export async function createGanttTask(data) {
+  return await insertRow('gantt_tasks', {
+    project_id: data.projectId,
+    parent_id: data.parentId || null,
+    name: data.name,
+    start_date: data.startDate,
+    end_date: data.endDate,
+    duration_days: data.durationDays || 1,
+    progress: data.progress || 0,
+    depends_on: data.dependsOn || '',
+    is_milestone: data.isMilestone ? 1 : 0,
+    assigned_to: data.assignedTo || null,
+    sort_order: data.sortOrder || 0,
+    color: data.color || '#3B82F6',
+    notes: data.notes || '',
+  });
+}
+
+// ============================================================
+// TASKS
+// ============================================================
+export async function createTask(data) {
+  return await insertRow('tasks', {
+    project_id: data.projectId,
+    assigned_to: data.assignedTo || null,
+    title: data.title,
+    description: data.description || '',
+    priority: data.priority || 'medium',
+    status: data.status || 'todo',
+    due_date: data.dueDate || null,
+  });
+}
+
+export async function toggleTask(id) {
+  const task = await dbGetFirst('SELECT status FROM tasks WHERE id=?', id);
   if (!task) return;
   const newStatus = task.status === 'done' ? 'todo' : 'done';
-  await db.runAsync('UPDATE tasks SET status=? WHERE id=?', [newStatus, taskId]);
-  await addToQueue(db, 'tasks', 'UPDATE', { id: taskId, status: newStatus });
+  await updateRow('tasks', id, { status: newStatus });
+}
+
+export async function deleteTask(id) {
+  return await deleteRow('tasks', id);
+}
+
+// ============================================================
+// DOCUMENTS
+// ============================================================
+export async function createDocument(data) {
+  return await insertRow('documents', {
+    project_id: data.projectId,
+    uploaded_by: data.uploadedBy || null,
+    name: data.name,
+    category: data.category || 'other',
+    file_url: data.fileUrl || '',
+    notes: data.notes || '',
+  });
+}
+
+export async function getAllDocuments(categoryFilter, includeTaskDocs = false) {
+  let sql = `
+    SELECT d.*, p.name AS project_name
+    FROM documents d
+    LEFT JOIN projects p ON d.project_id = p.id
+  `;
+  const params = [];
+  const where = [];
+
+  if (categoryFilter && categoryFilter !== 'all') {
+    where.push('d.category = ?');
+    params.push(categoryFilter);
+  } else if (!includeTaskDocs) {
+    // ซ่อนเอกสารระดับ task (category = 'task:...') จากหน้ารวม
+    where.push("(d.category NOT LIKE 'task:%' OR d.category IS NULL)");
+  }
+
+  if (where.length > 0) sql += ' WHERE ' + where.join(' AND ');
+  sql += ' ORDER BY d.created_at DESC';
+  return await dbGetAll(sql, params);
+}
+
+export async function deleteDocument(id) {
+  return await deleteRow('documents', id);
+}
+
+// ============================================================
+// WORKERS
+// ============================================================
+export async function createWorker(data) {
+  return await insertRow('workers', {
+    name: data.name,
+    role: data.role || '',
+    nationality: data.nationality || 'ไทย',
+    gender: data.gender || 'ชาย',
+    age: data.age || 0,
+    daily_wage: data.dailyWage || 0,
+    experience_years: data.experienceYears || 0,
+    employment_status: data.employmentStatus || 'พนักงานรายวัน',
+    phone: data.phone || '',
+    avatar_url: data.avatarUrl || '',
+  });
+}
+
+export async function deleteWorker(id) {
+  return await deleteRow('workers', id);
+}
+
+export async function createWorkerRecord(data) {
+  return await insertRow('worker_records', {
+    worker_id: data.workerId,
+    work_type: data.workType,
+    date: data.date,
+    output: data.output || 0,
+    quality: data.quality || 0,
+    ot_hours: data.otHours || 0,
+    ot_amount: data.otAmount || 0,
+  });
 }
 
 export async function getWorkersWithRecords() {
-  const db = await getDB();
-  await pullAllDataFromServer(); // อัปเดตข้อมูลแรงงานก่อนแสดงผล
-  const rows = await db.getAllAsync(`
-    SELECT w.*, r.id as rid, r.work_type, r.date, r.output, r.quality, r.ot_hours, r.ot_amount
-    FROM workers w LEFT JOIN worker_records r ON w.id=r.worker_id
-    ORDER BY w.name ASC
-  `);
-  const map = {};
-  rows.forEach(row => {
-    if (!map[row.id]) {
-      map[row.id] = { ...row, records: [] };
-    }
-    if (row.rid) {
-      map[row.id].records.push({ id: row.rid, work_type: row.work_type, date: row.date, output: row.output, quality: row.quality, ot_hours: row.ot_hours, ot_amount: row.ot_amount });
-    }
-  });
-  return Object.values(map).map(worker => ({
-    ...worker,
-    records_text: worker.records.length > 0 
-      ? worker.records.map(r => `• วันที่ ${r.date} | งาน: ${r.work_type} (OT: ${r.ot_hours||0} ชม.)`).join('\n')
-      : 'ยังไม่มีประวัติการทำงาน'
-  }));
+  const workers = await dbGetAll('SELECT * FROM workers ORDER BY name ASC');
+  for (const w of workers) {
+    w.records = await dbGetAll('SELECT * FROM worker_records WHERE worker_id=? ORDER BY date DESC', w.id);
+  }
+  return workers;
 }
 
-export async function resetDB() {
+// ============================================================
+// DASHBOARD
+// ============================================================
+export async function getDashboardStats() {
+  const p = await dbGetFirst(`
+    SELECT COUNT(*) AS total,
+      SUM(CASE WHEN status='active' THEN 1 ELSE 0 END) AS active,
+      SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) AS completed,
+      SUM(CASE WHEN status='planning' THEN 1 ELSE 0 END) AS planning
+    FROM projects
+  `);
+  const t = await dbGetFirst(`
+    SELECT COUNT(*) AS total,
+      SUM(CASE WHEN priority='urgent' AND status!='done' THEN 1 ELSE 0 END) AS urgent
+    FROM tasks
+  `);
+  const recent = await dbGetAll('SELECT * FROM projects ORDER BY created_at DESC LIMIT 5');
+  return { projects: p, tasks: t, recentProjects: recent };
+}
+export async function getTaskDocuments(taskId) {
+  if (!taskId) return [];
+  return await dbGetAll(
+    "SELECT * FROM documents WHERE category = ? ORDER BY created_at DESC",
+    `task:${taskId}`
+  );
+}
+// ============================================================
+// MAINTENANCE
+// ============================================================
+export async function clearAllData() {
   const db = await getDB();
   await db.execAsync(`
-    DROP TABLE IF EXISTS offline_queue; DROP TABLE IF EXISTS worker_records; DROP TABLE IF EXISTS workers;
-    DROP TABLE IF EXISTS progress_reports; DROP TABLE IF EXISTS documents;
-    DROP TABLE IF EXISTS tasks; DROP TABLE IF EXISTS projects; DROP TABLE IF EXISTS users;
+    DELETE FROM weather_logs;
+    DELETE FROM diary_reports;
+    DELETE FROM worker_records;
+    DELETE FROM workers;
+    DELETE FROM documents;
+    DELETE FROM gantt_tasks;
+    DELETE FROM tasks;
+    DELETE FROM boq_items;
+    DELETE FROM project_codes;
+    DELETE FROM project_members;
+    DELETE FROM projects;
+    DELETE FROM profiles;
+    DELETE FROM sync_queue;
   `);
-  _db = null;
-  await getDB();
 }
+// ============================================================
+// PROJECT MEMBERS & PERMISSIONS
+// ============================================================
+
+// ดู role ของ user ในโปรเจกต์ (ใช้เช็คสิทธิ์)
+export async function getMyRoleInProject(projectId, userId) {
+  if (!projectId || !userId) return null;
+
+  // เช็คว่าเป็น owner จากตาราง projects ก่อน (เผื่อ member ยังไม่ถูกสร้าง)
+  const project = await dbGetFirst(
+    'SELECT owner_id FROM projects WHERE id=?', projectId
+  );
+  if (project?.owner_id === userId) return 'owner';
+
+  const member = await dbGetFirst(
+    'SELECT role FROM project_members WHERE project_id=? AND user_id=?',
+    projectId, userId
+  );
+  return member?.role || null;
+}
+
+// ดูสมาชิกทั้งหมดในโปรเจกต์ + ข้อมูล profile
+export async function getProjectMembers(projectId) {
+  return await dbGetAll(`
+    SELECT pm.*,
+      pr.full_name, pr.custom_id, pr.avatar_url, pr.phone
+    FROM project_members pm
+    LEFT JOIN profiles pr ON pm.user_id = pr.id
+    WHERE pm.project_id = ?
+    ORDER BY
+      CASE pm.role
+        WHEN 'owner' THEN 1
+        WHEN 'engineer' THEN 2
+        WHEN 'foreman' THEN 3
+        ELSE 4
+      END,
+      pm.joined_at ASC
+  `, projectId);
+}
+
+// เปลี่ยน role ของสมาชิก (เฉพาะ owner ทำได้)
+export async function updateMemberRole(memberId, newRole) {
+  return await updateRow('project_members', memberId, { role: newRole });
+}
+
+// ลบสมาชิกออกจากโปรเจกต์
+export async function removeMember(memberId) {
+  return await deleteRow('project_members', memberId);
+}
+
+// เช็คสิทธิ์การทำ action
+// roles: 'owner' | 'engineer' | 'foreman' | 'member'
+export function canPerform(role, action) {
+  const ROLE_PERMISSIONS = {
+    owner: ['*'], // ทำได้ทุกอย่าง
+    engineer: [
+      'edit_project', 'add_task', 'edit_task', 'delete_task',
+      'add_document', 'delete_document', 'add_boq', 'edit_boq',
+      'delete_boq', 'invite_member', 'edit_gantt',
+    ],
+    foreman: [
+      'add_task', 'edit_task', 'add_document',
+      'add_worker_record', 'edit_worker_record',
+    ],
+    member: ['view_project', 'add_worker_record'],
+  };
+
+  const perms = ROLE_PERMISSIONS[role] || [];
+  return perms.includes('*') || perms.includes(action);
+}
+
+// รายชื่อ role ไทยพร้อม label
+export const ROLE_LABELS = {
+  owner: { label: 'เจ้าของโครงการ', color: '#EF4444', icon: 'star' },
+  engineer: { label: 'วิศวกร', color: '#3B82F6', icon: 'construct' },
+  foreman: { label: 'โฟร์แมน', color: '#F59E0B', icon: 'people' },
+  member: { label: 'สมาชิก', color: '#6B7280', icon: 'person' },
+};

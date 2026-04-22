@@ -1,11 +1,16 @@
+// Components.js
+// ============================================================
+// UI Components ที่ใช้ร่วมกันทั้งแอป
+// ============================================================
+
 import React from 'react';
 import { TouchableOpacity, Text, View, TextInput, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
-// สีหลักของแอป — แก้ตรงนี้ที่เดียว
+// สีหลักของแอป
 export const C = {
-  primary: '#0F2654',    // navy
-  accent: '#F59E0B',     // orange
+  primary: '#0F2654',
+  accent: '#F59E0B',
   success: '#10B981',
   danger: '#EF4444',
   info: '#3B82F6',
@@ -16,24 +21,7 @@ export const C = {
   white: '#FFFFFF',
   border: '#E5E7EB',
 };
-const StarRating = ({ rating, onRatingChange }) => {
-  return (
-    <View style={{ flexDirection: 'row', marginVertical: 10, gap: 8 }}>
-      {[1, 2, 3, 4, 5].map((star) => (
-        <TouchableOpacity key={star} onPress={() => onRatingChange(star)}>
-          <Ionicons 
-            name={rating >= star ? 'star' : 'star-outline'} 
-            size={32} 
-            color={rating >= star ? '#F59E0B' : '#D1D5DB'} 
-          />
-        </TouchableOpacity>
-      ))}
-      <Text style={{ fontSize: 16, marginLeft: 10, alignSelf: 'center', fontWeight: '600' }}>
-        {rating * 20}%
-      </Text>
-    </View>
-  );
-};
+
 export function Button({ title, onPress, variant = 'primary', icon, loading, style }) {
   const isPrimary = variant === 'primary';
   const isDanger = variant === 'danger';
@@ -57,9 +45,6 @@ export function Button({ title, onPress, variant = 'primary', icon, loading, sty
   );
 }
 
-// ============================================================
-// Card — กล่องขาวมีเงา
-// ============================================================
 export function Card({ children, style, onPress }) {
   const W = onPress ? TouchableOpacity : View;
   return (
@@ -73,9 +58,6 @@ export function Card({ children, style, onPress }) {
   );
 }
 
-// ============================================================
-// Header — แถบด้านบนสีน้ำเงิน
-// ============================================================
 export function Header({ title, onBack, rightIcon, onRight, subtitle }) {
   return (
     <View style={{
@@ -100,9 +82,6 @@ export function Header({ title, onBack, rightIcon, onRight, subtitle }) {
   );
 }
 
-// ============================================================
-// Input — ช่องกรอกข้อมูล
-// ============================================================
 export function Input({ label, value, onChangeText, placeholder, multiline, keyboardType, secureTextEntry, icon, error }) {
   return (
     <View style={{ marginBottom: 16 }}>
@@ -125,9 +104,6 @@ export function Input({ label, value, onChangeText, placeholder, multiline, keyb
   );
 }
 
-// ============================================================
-// Badge — ป้ายเล็กๆ แสดงสถานะ
-// ============================================================
 export function Badge({ label, color, bg }) {
   return (
     <View style={{ backgroundColor: bg || '#F3F4F6', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 }}>
@@ -136,9 +112,6 @@ export function Badge({ label, color, bg }) {
   );
 }
 
-// ============================================================
-// ProgressBar — แถบความคืบหน้า
-// ============================================================
 export function ProgressBar({ progress = 0, color, height = 8, style }) {
   const c = color || (progress >= 80 ? C.success : progress >= 40 ? C.accent : C.info);
   return (
@@ -148,9 +121,6 @@ export function ProgressBar({ progress = 0, color, height = 8, style }) {
   );
 }
 
-// ============================================================
-// Empty — แสดงเมื่อไม่มีข้อมูล
-// ============================================================
 export function Empty({ icon, title, subtitle }) {
   return (
     <View style={{ alignItems: 'center', paddingVertical: 40 }}>
@@ -161,9 +131,6 @@ export function Empty({ icon, title, subtitle }) {
   );
 }
 
-// ============================================================
-// Maps สถานะ — ใช้แปลงค่าจาก DB เป็นภาษาไทย + สี
-// ============================================================
 export const STATUS = {
   planning: { label: 'วางแผน', color: '#6B7280', bg: '#F3F4F6' },
   active: { label: 'กำลังดำเนินการ', color: '#3B82F6', bg: '#DBEAFE' },
@@ -194,7 +161,6 @@ export const DOC_CAT = {
   other: { label: 'อื่นๆ', icon: 'folder-outline', color: '#6B7280' },
 };
 
-// ตำแหน่งช่างในไซต์ก่อสร้าง
 export const WORKER_ROLES = [
   'ช่างไม้', 'ช่างก่อ', 'ช่างฉาบ', 'ช่างเหล็ก/ผูกเหล็ก', 'ช่างปูน/เทปูน',
   'ช่างไฟฟ้า', 'ช่างประปา', 'ช่างแอร์', 'ช่างฝ้าเพดาน', 'ช่างกระเบื้อง',

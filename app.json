@@ -1,5 +1,6 @@
 {
   "expo": {
+    "scheme": "contrack",
     "name": "ConTrack",
     "slug": "Con_Track",
     "version": "1.0.0",
@@ -34,6 +35,11 @@
         "backgroundColor": "#0F2654"
       },
       "package": "com.ots.manager"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "04ee0ff3-81cf-49ad-b138-d650056911f3"
+      }
     }
   }
 }
